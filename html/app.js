@@ -3477,7 +3477,7 @@ if (window.CefSharp) {
 				VRCX,
 				nextRefresh: 0,
 				isGameRunning: false,
-				appVersion: 'VRCX 2019.11.18',
+				appVersion: 'VRCX 2019.11.18-k1',
 				latestAppVersion: '',
 				ossDialog: false
 			},
@@ -6182,7 +6182,7 @@ if (window.CefSharp) {
 						});
 					}
 				} else if (command === 'Message') {
-					this.$prompt('Enter a message', 'Send Message', {
+					this.$prompt('Join me in', 'Send Message', {
 						distinguishCancelAndClose: true,
 						confirmButtonText: 'Send',
 						cancelButtonText: 'Cancel',
