@@ -138,10 +138,10 @@ body, input, textarea, select, button {
 .el-menu-item.notify::after {
 	position: absolute;
 	content: '';
-	right: 5px;
-	top: 5px;
-	width: 5px;
-	height: 5px;
+	right: 4px;
+	top: 4px;
+	width: 6px;
+	height: 6px;
 	background: #909399;
 	border-radius: 50%
 }
@@ -591,7 +591,7 @@ i.x-user-status.busy {
 }
 
 body, input, textarea, select, button {
-	color: #fff;
+	color: #C0C4CC;
 }
 
 .el-tree__empty-block {
@@ -606,4 +606,64 @@ body, input, textarea, select, button {
 
 .el-message-box__title {
 	color: #fff;
+}
+
+.el-table th, .el-table tr {
+    background: #34373c;
+}
+
+.el-dialog__footer>.el-button+.el-button {
+	margin-left: 5px;
+}
+
+.el-menu-item.is-active::before {
+	position: absolute;
+	content: '';
+	left: 1px;
+	top: 4px;
+	width: 2px;
+	height: 48px;
+	background: #DCDFE6;
+}
+
+.el-dialog__title {
+    color: #fff;
+}
+
+.el-dialog__header {
+	color: #fff;
+    background: #202225;
+}
+
+.el-dialog__footer {
+	color: #8e9297;
+    background: #2f3136;
+}
+
+a {
+	color: #6cf;
+}
+
+.el-switch__label {
+	color: #C0C4CC;
+}
+
+.el-button, .el-button-group>.el-button {
+    background: #4f545c;
+    color: #fff;
+	border: 0;
+}
+
+.el-button:focus, .el-button:hover {
+    background: #72767d;
+    color: #fff;
+}
+
+.el-button--text {
+	background: 0;
+}
+
+.el-button--text:hover {
+	color: #3cf;
+	background: 0;
 }
