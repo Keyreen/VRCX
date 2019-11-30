@@ -27,9 +27,9 @@ For a copy, see <https://opensource.org/licenses/MIT>.
 }
 
 .noty_theme__mint.noty_type__alert, .noty_theme__mint.noty_type__notification {
-	background-color: #fff;
+	background-color: #36393f;
 	border-bottom: 1px solid #D1D1D1;
-	color: #2F2F2F;
+	color: #fff;
 }
 
 .noty_theme__mint.noty_type__warning {
@@ -62,10 +62,6 @@ For a copy, see <https://opensource.org/licenses/MIT>.
 
 .el-dialog__body {
 	padding: 20px;
-}
-
-.el-dialog__footer>.el-button+.el-button {
-	margin-left: 5px;
 }
 
 ::-webkit-scrollbar {
@@ -114,7 +110,7 @@ body, input, textarea, select, button {
 	flex: 1;
 	padding: 10px;
 	overflow: hidden auto;
-	background: #fff;
+	background: #36393f;
 	position: relative;
 }
 
@@ -123,7 +119,7 @@ body, input, textarea, select, button {
 	position: absolute;
 	width: 100%;
 	height: 100%;
-	background: #fff;
+	background: #36393f;
 	/* modal 시작이 2000이라서 */
 	z-index: 1999;
 }
@@ -131,7 +127,7 @@ body, input, textarea, select, button {
 .x-menu-container {
 	flex: none;
 	overflow: hidden auto;
-	background: #383838;
+	background: #202225;
 }
 
 .x-menu-container>.el-menu {
@@ -139,24 +135,14 @@ body, input, textarea, select, button {
 	border: 0;
 }
 
-.el-menu-item.is-active::before {
-	position: absolute;
-	content: '';
-	left: 1px;
-	top: 4px;
-	width: 2px;
-	height: 48px;
-	background: #DCDFE6;
-}
-
 .el-menu-item.notify::after {
 	position: absolute;
 	content: '';
-	right: 4px;
-	top: 4px;
-	width: 6px;
-	height: 6px;
-	background: #EBEEF5;
+	right: 5px;
+	top: 5px;
+	width: 5px;
+	height: 5px;
+	background: #909399;
 	border-radius: 50%
 }
 
@@ -165,7 +151,7 @@ body, input, textarea, select, button {
 	width: 236px;
 	display: flex;
 	flex-direction: column;
-	background: #f8f8f8;
+	background: #2f3136;
 }
 
 .el-popper.x-quick-search {
@@ -221,12 +207,12 @@ body, input, textarea, select, button {
 }
 
 .x-friend-item:hover {
-	background: #f0f0f0;
+	background: #34373c;
 	border-radius: 2px;
 }
 
 .x-aside-container>.x-friend-list>.x-friend-item:hover {
-	background: #fff;
+	background: #36393f;
 	border-radius: 2px;
 }
 
@@ -279,7 +265,7 @@ body, input, textarea, select, button {
 	width: 8px;
 	height: 8px;
 	border-radius: 50%;
-	border: 2px solid #fff;
+	border: 2px solid #36393f;
 	background: #909399;
 }
 
@@ -312,12 +298,12 @@ body, input, textarea, select, button {
 }
 
 .x-friend-item>.detail>.name {
-	color: #303133;
+	color: #fff;
 	font-weight: bold;
 }
 
 .x-friend-item>.detail>.extra {
-	color: #606266;
+	color: #8e9297;
 	font-weight: normal;
 }
 
@@ -372,12 +358,12 @@ i.x-user-status.busy {
 }
 
 .x-friend-item>.detail>.name.x-tag-basic {
-	color: rgb(23, 120, 255);
+	color: rgb(102, 204, 255);
 }
 
 .el-tag.x-tag-basic {
-	border-color: rgb(23, 120, 255);
-	color: rgb(23, 120, 255);
+	border-color: rgb(102, 204, 255);
+	color: rgb(102, 204, 255);
 }
 
 .x-friend-item>.detail>.name.x-tag-known {
@@ -399,12 +385,12 @@ i.x-user-status.busy {
 }
 
 .x-friend-item>.detail>.name.x-tag-veteran {
-	color: rgb(129, 67, 230);
+	color: rgb(204, 102, 255);
 }
 
 .el-tag.x-tag-veteran {
-	border-color: rgb(129, 67, 230);
-	color: rgb(129, 67, 230);
+	border-color: rgb(204, 102, 255);
+	color: rgb(204, 102, 255);
 }
 
 .x-friend-item>.detail>.name.x-tag-legend {
@@ -420,12 +406,12 @@ i.x-user-status.busy {
 }
 
 .x-friend-item>.detail>.name.x-tag-legendary {
-	color: rgb(0, 0, 0);
+	color: rgb(255, 255, 255);
 }
 
 .el-tag.x-tag-legendary {
-	border-color: rgb(0, 0, 0);
-	color: rgb(0, 0, 0);
+	border-color: rgb(255, 255, 255);
+	color: rgb(255, 255, 255);
 }
 
 .x-friend-item>.detail>.name.x-tag-vip {
@@ -471,4 +457,153 @@ i.x-user-status.busy {
 	border: 0;
 	border-radius: 2px;
 	padding: 0;
+}
+
+.el-input__inner {
+	background: #202225;
+	border: 0;
+}
+
+.el-pagination--small .btn-next, .el-pagination--small .btn-prev, .el-pagination--small .el-pager li, .el-pagination--small .el-pager li.btn-quicknext, .el-pagination--small .el-pager li.btn-quickprev, .el-pagination--small .el-pager li:last-child {
+	background: #42454a;
+	color: #C0C4CC;
+}
+
+.el-pager li:hover {
+    color: #fff;
+}
+
+.el-pager li.active {
+    color: #6b80c9;
+	background: #48516e;
+    cursor: default;
+}
+
+.el-pagination button:disabled {
+    color: #6d7178;
+    background: #42454a;
+    cursor: not-allowed;
+}
+
+.el-table td, .el-table th.is-leaf {
+	background: #36393f;
+	color: #cecfd1;
+    border-bottom: 1px solid #42454a;
+}
+
+.el-table--striped .el-table__body tr.el-table__row--striped td {
+    background: #36393f;
+}
+
+.el-table__empty-block {
+	color: #fff;
+	background: #36393f;
+	border-bottom: 1px solid #42454a;
+}
+
+.el-table--enable-row-hover .el-table__body tr:hover>td {
+	color: #fff;
+	background: #34373c;
+}
+
+.el-menu-item:hover {
+	background: #606163;
+}
+
+.el-switch__core {
+	background: #34373c;
+}
+
+
+.el-button.is-circle {
+    border: 0;
+    background: #4f545c;
+    color: #fff;
+}
+
+.el-button.is-circle:hover {
+    background: #72767d;
+    color: #fff;
+}
+
+.el-button--warning {
+    background: #EA3 !important;
+}
+
+.el-button--danger {
+    background: #F66 !important;
+}
+
+.el-button--success {
+    background: #6F3 !important;
+}
+
+.el-button--warning:hover {
+    background: #FC6 !important;
+}
+
+.el-button--danger:hover {
+    background: #F99 !important;
+}
+
+.el-button--success:hover {
+    background: #9F6 !important;
+}
+
+.el-dialog__body {
+	color: #fff;
+	background: #2f3136;
+}
+
+.el-tabs__nav-wrap::after {
+	background: #2f3136;
+}
+
+.el-tag--plain.el-tag {
+    background-color: #2f3136;
+}
+
+.el-tabs__item {
+	color: #b1b3b6;
+}
+
+.el-table::before {
+	background: #42454a;
+}
+
+.el-collapse-item__header{
+	color: #fff;
+	background: #36393f;
+	border-bottom: 1px solid #42454a;
+}
+
+.el-collapse-item__wrap {
+	color: #fff;
+	background: #36393f;
+}
+
+.el-collapse-item__content {
+	color: #8e9297;
+}
+
+.x-friend-list>.x-friend-group {
+	color: #8e9297;
+}
+
+body, input, textarea, select, button {
+	color: #fff;
+}
+
+.el-tree__empty-block {
+	color: #fff;
+	background: #36393f;
+}
+
+.el-message-box {
+	background: #2f3136;
+	border: 0;
+}
+
+.el-message-box__title {
+	color: #fff;
 }
