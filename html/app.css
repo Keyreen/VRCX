@@ -298,7 +298,6 @@ body, input, textarea, select, button {
 }
 
 .x-friend-item>.detail>.name {
-	color: #fff;
 	font-weight: bold;
 }
 
@@ -406,12 +405,28 @@ i.x-user-status.busy {
 }
 
 .x-friend-item>.detail>.name.x-tag-legendary {
-	color: rgb(255, 255, 255);
+	color: transparent;
+	background-image: repeating-linear-gradient(to left, #f66, #ff0, #0f0, #3ff, #99f, #f3f, #f66);
+	-webkit-background-clip: text;
+	background-size: 50% 100%;
+	-webkit-background-clip: text;
+	 animation: rainbow 8s linear infinite;
 }
 
 .el-tag.x-tag-legendary {
-	border-color: rgb(255, 255, 255);
-	color: rgb(255, 255, 255);
+	background-image: repeating-linear-gradient(to left, #f66, #ff0, #0f0, #3ff, #99f, #f3f, #f66);
+	border-color: black;
+	font-weight: bold;
+	background-size: 50% 100%;
+	color: transparent;
+	 -webkit-background-clip: text;
+	 animation: rainbow 8s linear infinite;
+}
+
+@keyframes rainbow { 
+    0%{background-position:0% 100%}
+    50%{background-position:50% 100%}
+    100%{background-position:100% 100%}
 }
 
 .x-friend-item>.detail>.name.x-tag-vip {
@@ -550,6 +565,12 @@ i.x-user-status.busy {
     background: #9F6 !important;
 }
 
+.el-button--primary.is-disabled, .el-button--primary.is-disabled:active, .el-button--primary.is-disabled:focus, .el-button--primary.is-disabled:hover {
+    color: #999;
+    background-color: #515e89;
+    border-color: #515e89;
+}
+
 .el-dialog__body {
 	color: #fff;
 	background: #2f3136;
@@ -666,4 +687,60 @@ a {
 .el-button--text:hover {
 	color: #3cf;
 	background: 0;
+}
+
+.el-popper[x-placement^=bottom] .popper__arrow::after {
+	border-bottom-color: #18191c;
+}
+
+.el-dropdown-menu {
+	background: #18191c;
+	border: none;
+	color: #bbb;
+}
+
+.el-select-dropdown__list {
+	background: #18191c;
+	border: none;
+	color: #bbb;
+}
+
+.el-scrollbar__view {
+	border: none;
+}
+
+.el-select-dropdown__item.hover, .el-select-dropdown__item:hover {
+    background-color: #25272b;
+	color: #ddd;
+}
+
+.el-dropdown-menu__item:focus, .el-dropdown-menu__item:not(.is-disabled):hover {
+    background-color: #25272b;
+    color: #ddd;
+}
+
+.el-select-dropdown.is-multiple .el-select-dropdown__item.selected.hover {
+    color: #fff;
+    background-color: #25272b;
+}
+
+.el-select-dropdown.is-multiple .el-select-dropdown__item.selected {
+    color: #ddd;
+    background-color: #25272b;
+}
+
+.el-dropdown-menu__item--divided:before {
+    background-color: #18191c;
+}
+
+.el-popper[x-placement^=bottom] .popper__arrow {
+	border: none;
+}
+
+.el-popper[x-placement^=bottom] {
+	border: none;
+}
+
+.el-dropdown-menu__item {
+    color: #bbb;
 }
