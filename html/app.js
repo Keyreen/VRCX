@@ -15,7 +15,7 @@ if (window.CefSharp) {
 	}).then(() => {
 
 		var $nameColorStyle = document.createElement('style');
-		$nameColorStyle.appendChild(document.createTextNode('.x-friend-item>.detail>.name { color: #303133 !important; }'));
+		$nameColorStyle.appendChild(document.createTextNode('.x-friend-item>.detail>.name { color: white !important; }'));
 		document.head.appendChild($nameColorStyle);
 
 		document.addEventListener('keyup', (e) => {
@@ -3477,7 +3477,7 @@ if (window.CefSharp) {
 				VRCX,
 				nextRefresh: 0,
 				isGameRunning: false,
-				appVersion: 'VRCX 2019.11.18-k1',
+				appVersion: 'VRCX 2019.11.18-k2',
 				latestAppVersion: '',
 				ossDialog: false
 			},
