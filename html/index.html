@@ -983,6 +983,12 @@
 					</div>
 					
 					<div class="x-friend-list" style="max-height:none">
+						<div class="x-friend-item" v-if="userDialog.ref.bio" style="width:100%">
+							<div class="detail">
+								<span class="name">Bio</span>
+								<el-input v-model="userDialog.ref.bio" type="textarea" :rows="2" readonly="true" size="mini" resize="none" class="extra"></el-input>
+							</div>
+						</div>
 						<div class="x-friend-item" style="width:100%">
 							<div class="detail">
 								<span class="name">Note</span>
