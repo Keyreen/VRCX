@@ -10,15 +10,15 @@ if (window.CefSharp) {
 		CefSharp.BindObjectAsync('SQLite'),
 		CefSharp.BindObjectAsync('LogWatcher'),
 		CefSharp.BindObjectAsync('Discord')
-	]).catch(() => {
+	]).catch(function () {
 		location = 'https://github.com/pypy-vrc/vrcx';
-	}).then(() => {
+	}).then(function () {
 
 		var $nameColorStyle = document.createElement('style');
 		$nameColorStyle.appendChild(document.createTextNode('.x-friend-item>.detail>.name { color: white !important; }'));
 		document.head.appendChild($nameColorStyle);
 
-		document.addEventListener('keyup', (e) => {
+		document.addEventListener('keyup', function (e) {
 			if (e.ctrlKey) {
 				if (e.shiftKey && e.code === 'KeyI') {
 					VRCX.ShowDevTools();
@@ -89,7 +89,9 @@ if (window.CefSharp) {
 			this.Set(key, JSON.stringify(value));
 		};
 
-		setInterval(() => VRCXStorage.Flush(), 5 * 60 * 1000);
+		setInterval(function () {
+			VRCXStorage.Flush();
+		}, 5 * 60 * 1000);
 
 		Noty.overrideDefaults({
 			/*
@@ -103,7 +105,9 @@ if (window.CefSharp) {
 			timeout: 6000
 		});
 
-		var removeFromArray = (array, item) => {
+		var isObject = (arg) => arg === Object(arg);
+
+		var removeFromArray = function (array, item) {
 			var { length } = array;
 			for (var i = 0; i < length; ++i) {
 				if (array[i] === item) {
@@ -121,21 +125,21 @@ if (window.CefSharp) {
 		Vue.filter('commaNumber', commaNumber);
 
 		var formatDate = (s, format) => {
-			var ctx = new Date(s);
-			if (isNaN(ctx)) {
+			var dt = new Date(s);
+			if (isNaN(dt)) {
 				return escapeTag(s);
 			}
-			var hours = ctx.getHours();
+			var hours = dt.getHours();
 			var map = {
-				'YYYY': String(10000 + ctx.getFullYear()).substr(-4),
-				'MM': String(101 + ctx.getMonth()).substr(-2),
-				'DD': String(100 + ctx.getDate()).substr(-2),
+				'YYYY': String(10000 + dt.getFullYear()).substr(-4),
+				'MM': String(101 + dt.getMonth()).substr(-2),
+				'DD': String(100 + dt.getDate()).substr(-2),
 				'HH24': String(100 + hours).substr(-2),
 				'HH': String(100 + (hours > 12
 					? hours - 12
 					: hours)).substr(-2),
-				'MI': String(100 + ctx.getMinutes()).substr(-2),
-				'SS': String(100 + ctx.getSeconds()).substr(-2),
+				'MI': String(100 + dt.getMinutes()).substr(-2),
+				'SS': String(100 + dt.getSeconds()).substr(-2),
 				'AMPM': hours >= 12
 					? 'PM'
 					: 'AM'
@@ -204,96 +208,108 @@ if (window.CefSharp) {
 
 		var API = {};
 
-		API.$handler = {};
+		API.eventHandlers = new Map();
 
-		API.$emit = function (event, ...args) {
+		API.$emit = function (name, ...args) {
+			// console.log(name, ...args);
+			var handlers = this.eventHandlers.get(name);
+			if (handlers === undefined) {
+				return;
+			}
 			try {
-				// console.log(event, ...args);
-				var h = this.$handler[event];
-				if (h) {
-					h.forEach((f) => f(...args));
+				for (var handler of handlers) {
+					handler.apply(this, args);
 				}
 			} catch (err) {
 				console.error(err);
 			}
 		};
 
-		API.$on = function (event, callback) {
-			var h = this.$handler[event];
-			if (h) {
-				h.push(callback);
-			} else {
-				this.$handler[event] = [callback];
+		API.$on = function (name, fn) {
+			var handlers = this.eventHandlers.get(name);
+			if (handlers === undefined) {
+				handlers = [];
+				this.eventHandlers.set(name, handlers);
 			}
+			handlers.push(fn);
 		};
 
-		API.$off = function (event, callback) {
-			var h = this.$handler[event];
-			if (h) {
-				h.find((val, idx, arr) => {
-					if (val !== callback) {
-						return false;
-					}
-					if (arr.length > 1) {
-						arr.splice(idx, 1);
+		API.$off = function (name, fn) {
+			var handlers = this.eventHandlers.get(name);
+			if (handlers === undefined) {
+				return;
+			}
+			var { length } = handlers;
+			for (var i = 0; i < length; ++i) {
+				if (handlers[i] === fn) {
+					if (length > 1) {
+						handlers.splice(i, 1);
 					} else {
-						delete this.$handler[event];
+						this.eventHandlers.delete(name);
 					}
-					return true;
-				});
+					break;
+				}
 			}
 		};
 
-		API.$fetch = {};
+		API.pendingGetRequests = new Map();
 
 		API.call = function (endpoint, options) {
-			var input = `https://api.vrchat.cloud/api/1/${endpoint}`;
+			var resource = `https://api.vrchat.cloud/api/1/${endpoint}`;
 			var init = {
 				method: 'GET',
 				mode: 'cors',
 				credentials: 'include',
 				cache: 'no-cache',
+				redirect: 'follow',
 				referrerPolicy: 'no-referrer',
 				...options
 			};
-			if (init.method === 'GET') {
-				if (init.body) {
-					var url = new URL(input);
-					for (var key in init.body) {
-						url.searchParams.set(key, init.body[key]);
+			var { params } = init;
+			var isGetRequest = init.method === 'GET';
+			if (isGetRequest) {
+				// transform body to url
+				if (isObject(params)) {
+					var url = new URL(resource);
+					var { searchParams } = url;
+					for (var key in params) {
+						searchParams.set(key, params[key]);
 					}
-					input = url.toString();
-					init.body = null;
+					resource = url.toString();
 				}
 				// merge requests
-				if (this.$fetch[input]) {
-					return this.$fetch[input];
+				var req = this.pendingGetRequests.get(resource);
+				if (req !== undefined) {
+					return req;
 				}
 			} else {
 				init.headers = {
 					'Content-Type': 'application/json;charset=utf-8',
 					...init.headers
 				};
-				init.body = init.body
-					? JSON.stringify(init.body)
+				init.body = isObject(params)
+					? JSON.stringify(params)
 					: '{}';
 			}
-			var req = fetch(input, init).catch((err) => {
+			var req = fetch(resource, init).catch((err) => {
 				this.$throw(0, err);
 			}).then((res) => res.json().catch(() => {
-				if (!res.ok) {
-					this.$throw(res.status);
-				}
-				this.$throw(0, 'Invalid JSON');
-			}).then((json) => {
 				if (res.ok) {
-					if (json.success) {
+					this.$throw(0, 'Invalid JSON response');
+				}
+				this.$throw(res.status);
+			}).then((json) => {
+				if (isObject(json) === false) {
+					this.$throw(0, 'Invalid JSON response');
+				}
+				if (res.ok) {
+					if (isObject(json.success)) {
 						new Noty({
 							type: 'success',
 							text: escapeTag(json.success.message)
 						}).show();
 					}
-				} else if (typeof json.error === 'object') {
+				} else if (isObject(json.error)) {
 					this.$throw(
 						json.error.status_code || res.status,
 						json.error.message,
@@ -309,15 +325,16 @@ if (window.CefSharp) {
 				}
 				return json;
 			}));
-			if (init.method === 'GET') {
-				this.$fetch[input] = req.finally(() => {
-					delete this.$fetch[input];
+			if (isGetRequest) {
+				req.finally(() => {
+					this.pendingGetRequests.delete(resource);
 				});
+				this.pendingGetRequests.set(resource, req);
 			}
 			return req;
 		};
 
-		API.$status = {
+		API.statusCodes = {
 			100: 'Continue',
 			101: 'Switching Protocols',
 			102: 'Processing',
@@ -392,10 +409,11 @@ if (window.CefSharp) {
 			527: 'Railgun Listener to origin error'
 		};
 
+		// FIXME : extra를 없애줘
 		API.$throw = function (code, error, extra) {
 			var text = [];
-			if (code) {
-				var status = this.$status[code];
+			if (code > 0) {
+				var status = this.statusCodes[code];
 				if (status) {
 					text.push(`${code} ${status}`);
 				} else {
@@ -408,55 +426,50 @@ if (window.CefSharp) {
 			if (extra !== undefined) {
 				text.push(extra);
 			}
+			text = text.map((s) => escapeTag(s)).join('<br>');
 			if (text.length) {
 				new Noty({
 					type: 'error',
-					text: text.map((s) => escapeTag(s)).join('<br>')
+					text
 				}).show();
 			}
-			throw {
-				'status_code': code,
-				error
-			};
+			throw new Error(text);
+		};
+
+		API.$bulk = function (options, args) {
+			if (typeof options.handle === 'function') {
+				options.handle.call(this, args, options);
+			}
+			if (args.json.length > 0 &&
+				(options.params.offset += args.json.length,
+					// eslint-disable-next-line no-nested-ternary
+					options.N > 0
+						? options.N > options.params.offset
+						: options.N < 0
+							? args.json.length
+							: options.params.n === args.json.length)) {
+				this.bulk(options);
+			} else if (typeof options.done === 'function') {
+				options.done.call(this, true, options);
+			}
+			return args;
 		};
 
 		API.bulk = function (options) {
-			var handle = (args) => {
-				if (typeof options.handle === 'function') {
-					options.handle(args, options);
-				}
-				if (args.json.length &&
-					(options.param.offset += args.json.length,
-						options.N > 0
-							? options.N > options.param.offset
-							: options.N < 0
-								? args.json.length
-								: options.param.n === args.json.length)) {
-					this[options.fn](options.param).catch((err) => {
-						if (typeof options.done === 'function') {
-							options.done(false, options);
-						}
-						throw err;
-					}).then(handle);
-				} else if (typeof options.done === 'function') {
-					options.done(true, options);
-				}
-				return args;
-			};
-			this[options.fn](options.param).catch((err) => {
+			this[options.fn](options.params).catch((err) => {
 				if (typeof options.done === 'function') {
-					options.done(false, options);
+					options.done.call(this, false, options);
 				}
 				throw err;
-			}).then(handle);
+			}).then((args) => this.$bulk(options, args));
 		};
 
 		// API: Config
 
-		API.config = {};
+		API.cachedConfig = {};
 
-		API.$on('CONFIG', (args) => {
-			args.ref = API.updateConfig(args.json);
+		API.$on('CONFIG', function (args) {
+			args.ref = this.applyConfig(args.json);
 		});
 
 		API.getConfig = function () {
@@ -471,20 +484,21 @@ if (window.CefSharp) {
 			});
 		};
 
-		API.updateConfig = function (ref) {
-			var ctx = {
+		API.applyConfig = function (json) {
+			var ref = {
 				clientApiKey: '',
-				...ref
+				...json
 			};
-			this.config = ctx;
-			return ctx;
+			this.cachedConfig = ref;
+			return ref;
 		};
 
 		// API: Location
 
 		API.parseLocation = function (tag) {
-			var L = {
-				tag: String(tag || ''),
+			tag = String(tag || '');
+			var ctx = {
+				tag,
 				isOffline: false,
 				isPrivate: false,
 				worldId: '',
@@ -497,16 +511,16 @@ if (window.CefSharp) {
 				friendsId: null,
 				canRequestInvite: false
 			};
-			if (L.tag === 'offline') {
-				L.isOffline = true;
-			} else if (L.tag === 'private') {
-				L.isPrivate = true;
-			} else if (!L.tag.startsWith('local')) {
-				var sep = L.tag.indexOf(':');
+			if (tag === 'offline') {
+				ctx.isOffline = true;
+			} else if (tag === 'private') {
+				ctx.isPrivate = true;
+			} else if (tag.startsWith('local') === false) {
+				var sep = tag.indexOf(':');
 				if (sep >= 0) {
-					L.worldId = L.tag.substr(0, sep);
-					L.instanceId = L.tag.substr(sep + 1);
-					L.instanceId.split('~').forEach((s, i) => {
+					ctx.worldId = tag.substr(0, sep);
+					ctx.instanceId = tag.substr(sep + 1);
+					ctx.instanceId.split('~').forEach((s, i) => {
 						if (i) {
 							var A = s.indexOf('(');
 							var Z = A >= 0
@@ -519,42 +533,42 @@ if (window.CefSharp) {
 								? s.substr(A + 1, Z - A - 1)
 								: '';
 							if (key === 'hidden') {
-								L.hiddenId = value;
+								ctx.hiddenId = value;
 							} else if (key === 'private') {
-								L.privateId = value;
+								ctx.privateId = value;
 							} else if (key === 'friends') {
-								L.friendsId = value;
+								ctx.friendsId = value;
 							} else if (key === 'canRequestInvite') {
-								L.canRequestInvite = true;
+								ctx.canRequestInvite = true;
 							}
 						} else {
-							L.instanceName = s;
+							ctx.instanceName = s;
 						}
 					});
-					L.accessType = 'public';
-					if (L.privateId !== null) {
-						if (L.canRequestInvite) {
+					ctx.accessType = 'public';
+					if (ctx.privateId !== null) {
+						if (ctx.canRequestInvite) {
 							// InvitePlus
-							L.accessType = 'invite+';
+							ctx.accessType = 'invite+';
 						} else {
 							// InviteOnly
-							L.accessType = 'invite';
+							ctx.accessType = 'invite';
 						}
-						L.userId = L.privateId;
-					} else if (L.friendsId !== null) {
+						ctx.userId = ctx.privateId;
+					} else if (ctx.friendsId !== null) {
 						// FriendsOnly
-						L.accessType = 'friends';
-						L.userId = L.friendsId;
-					} else if (L.hiddenId !== null) {
+						ctx.accessType = 'friends';
+						ctx.userId = ctx.friendsId;
+					} else if (ctx.hiddenId !== null) {
 						// FriendsOfGuests
-						L.accessType = 'friends+';
-						L.userId = L.hiddenId;
+						ctx.accessType = 'friends+';
+						ctx.userId = ctx.hiddenId;
 					}
 				} else {
-					L.worldId = L.tag;
+					ctx.worldId = tag;
 				}
 			}
-			return L;
+			return ctx;
 		};
 
 		Vue.component('launch', {
@@ -605,26 +619,24 @@ if (window.CefSharp) {
 					} else if (L.isPrivate) {
 						this.text = 'Private';
 					} else if (L.worldId) {
-						var ref = API.world[L.worldId];
-						if (ref) {
-							if (L.instanceId) {
-								this.text = `${ref.name} #${L.instanceName} ${L.accessType}`;
-							} else {
-								this.text = ref.name;
-							}
-						} else {
+						var ref = API.cachedWorlds.get(L.worldId);
+						if (ref === undefined) {
 							API.getWorld({
 								worldId: L.worldId
 							}).then((args) => {
 								if (L.tag === this.location) {
 									if (L.instanceId) {
-										this.text = `${args.ref.name} #${L.instanceName} ${L.accessType}`;
+										this.text = `${args.json.name} #${L.instanceName} ${L.accessType}`;
 									} else {
-										this.text = args.ref.name;
+										this.text = args.json.name;
 									}
 								}
 								return args;
 							});
+						} else if (L.instanceId) {
+							this.text = `${ref.name} #${L.instanceName} ${L.accessType}`;
+						} else {
+							this.text = ref.name;
 						}
 					}
 				},
@@ -668,35 +680,37 @@ if (window.CefSharp) {
 		// setNewPassword: PUT auth/password {emailToken: string, id: string, password: string}
 
 		API.isLoggedIn = false;
+		API.cachedUsers = new Map();
 		API.currentUser = {};
-		API.user = {};
 
-		API.$on('LOGOUT', () => {
-			API.isLoggedIn = false;
+		API.$on('LOGOUT', function () {
 			VRCX.DeleteAllCookies();
+			this.isLoggedIn = false;
 		});
 
-		API.$on('USER:CURRENT', (args) => {
-			args.ref = API.updateCurrentUser(args.json);
+		API.$on('USER:CURRENT', function (args) {
+			args.ref = this.applyCurrentUser(args.json);
 		});
 
-		API.$on('USER:CURRENT:SAVE', (args) => {
-			API.$emit('USER:CURRENT', args);
+		API.$on('USER:CURRENT:SAVE', function (args) {
+			this.$emit('USER:CURRENT', args);
 		});
 
-		API.$on('USER', (args) => {
-			args.ref = API.updateUser(args.json);
+		API.$on('USER', function (args) {
+			args.ref = this.applyUser(args.json);
 		});
 
-		API.$on('USER:LIST', (args) => {
-			args.json.forEach((json) => {
-				API.$emit('USER', {
-					param: {
-						userId: json.id
-					},
-					json
-				});
-			});
+		API.$on('USER:LIST', function (args) {
+			if (Array.isArray(args.json)) {
+				for (var json of args.json) {
+					this.$emit('USER', {
+						json,
+						params: {
+							userId: json.id
+						}
+					});
+				}
+			}
 		});
 
 		API.logout = function () {
@@ -708,21 +722,21 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				username: string,
 				password: string
 			}
 		*/
-		API.login = function (param) {
-			return this.call(`auth/user?apiKey=${this.config.clientApiKey}`, {
+		API.login = function (params) {
+			return this.call(`auth/user?apiKey=${this.cachedConfig.clientApiKey}`, {
 				method: 'GET',
 				headers: {
-					Authorization: `Basic ${btoa(encodeURIComponent(`${param.username}:${param.password}`).replace(/%([0-9A-F]{2})/gu, (_, s) => String.fromCharCode(parseInt(s, 16))).replace('%', '%25'))}`
+					Authorization: `Basic ${btoa(encodeURIComponent(`${params.username}:${params.password}`).replace(/%([0-9A-F]{2})/gu, (_, s) => String.fromCharCode(parseInt(s, 16))).replace('%', '%25'))}`
 				}
 			}).then((json) => {
 				var args = {
-					param,
 					json,
+					params,
 					origin: true
 				};
 				if (json.requiresTwoFactorAuth) {
@@ -735,18 +749,18 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				steamTicket: string
 			}
 		*/
-		API.loginWithSteam = function (param) {
-			return this.call(`auth/steam?apiKey=${this.config.clientApiKey}`, {
+		API.loginWithSteam = function (params) {
+			return this.call(`auth/steam?apiKey=${this.cachedConfig.clientApiKey}`, {
 				method: 'POST',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
 					json,
+					params,
 					origin: true
 				};
 				if (json.requiresTwoFactorAuth) {
@@ -759,18 +773,18 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				code: string
 			}
 		*/
-		API.verifyOTP = function (param) {
+		API.verifyOTP = function (params) {
 			return this.call('auth/twofactorauth/otp/verify', {
 				method: 'POST',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('OTP', args);
 				return args;
@@ -778,18 +792,18 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				code: string
 			}
 		*/
-		API.verifyTOTP = function (param) {
+		API.verifyTOTP = function (params) {
 			return this.call('auth/twofactorauth/totp/verify', {
 				method: 'POST',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('TOTP', args);
 				return args;
@@ -797,7 +811,7 @@ if (window.CefSharp) {
 		};
 
 		API.getCurrentUser = function () {
-			return this.call(`auth/user?apiKey=${this.config.clientApiKey}`, {
+			return this.call(`auth/user?apiKey=${this.cachedConfig.clientApiKey}`, {
 				method: 'GET'
 			}).then((json) => {
 				var args = {
@@ -813,18 +827,16 @@ if (window.CefSharp) {
 			});
 		};
 
-		API.updateCurrentUser = function (ref) {
-			var ctx;
+		API.applyCurrentUser = function (json) {
+			var ref = this.currentUser;
 			if (this.isLoggedIn) {
-				ctx = this.currentUser;
-				Object.assign(ctx, ref);
-				if (ctx.homeLocation_.tag !== ctx.homeLocation) {
-					ctx.homeLocation_ = this.parseLocation(ctx.homeLocation);
+				Object.assign(ref, json);
+				if (ref.homeLocation !== ref.$homeLocation.tag) {
+					ref.$homeLocation = this.parseLocation(ref.homeLocation);
 				}
 			} else {
-				this.isLoggedIn = true;
-				ctx = {
-					id: ref.id,
+				ref = {
+					id: '',
 					username: '',
 					displayName: '',
 					bio: '',
@@ -848,33 +860,34 @@ if (window.CefSharp) {
 					onlineFriends: [],
 					activeFriends: [],
 					offlineFriends: [],
-					// custom
-					homeLocation_: {},
+					// VRCX
+					$homeLocation: {},
 					//
-					...ref
+					...json
 				};
-				ctx.homeLocation_ = this.parseLocation(ctx.homeLocation);
-				this.currentUser = ctx;
+				ref.$homeLocation = this.parseLocation(ref.homeLocation);
+				this.currentUser = ref;
+				this.isLoggedIn = true;
 				this.$emit('LOGIN', {
-					json: ref,
-					ref: ctx
+					json,
+					ref
 				});
 			}
-			return ctx;
+			return ref;
 		};
 
 		/*
-			param: {
+			params: {
 				userId: string
 			}
 		*/
-		API.getUser = function (param) {
-			return this.call(`users/${param.userId}`, {
+		API.getUser = function (params) {
+			return this.call(`users/${params.userId}`, {
 				method: 'GET'
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('USER', args);
 				return args;
@@ -882,64 +895,72 @@ if (window.CefSharp) {
 		};
 
 		var userUpdateQueue = [];
-		var userUpdateTimer = false;
-		var queueUserUpdate = (args) => {
-			userUpdateQueue.push(args);
-			if (userUpdateTimer === false) {
-				userUpdateTimer = setTimeout(() => {
-					userUpdateTimer = false;
-					userUpdateQueue.forEach((v) => API.$emit('USER:UPDATE', v));
-					userUpdateQueue.length = 0;
-				}, 1);
+		var userUpdateTimer = null;
+		var queueUserUpdate = function (ctx) {
+			userUpdateQueue.push(ctx);
+			if (userUpdateTimer !== null) {
+				return;
+			}
+			userUpdateTimer = setTimeout(function () {
+				userUpdateTimer = null;
+				var { length } = userUpdateQueue;
+				for (var i = 0; i < length; ++i) {
+					API.$emit('USER:UPDATE', userUpdateQueue[i]);
+				}
+				userUpdateQueue.length = 0;
+			}, 1);
+		};
+
+		var applyUserTrustLevel = function (ref) {
+			ref.$isVIP = ref.developerType &&
+				ref.developerType !== 'none';
+			ref.$isTroll = false;
+			var { tags } = ref;
+			if (Array.isArray(tags)) {
+				if (tags.includes('admin_moderator')) {
+					ref.$isVIP = true;
+				}
+				if (tags.includes('system_troll') ||
+					tags.includes('system_probable_troll')) {
+					ref.$isTroll = true;
+				}
+				if (tags.includes('system_legend')) {
+					ref.$trustLevel = 'Legendary User';
+					ref.$trustClass = 'x-tag-legendary';
+				} else if (tags.includes('system_trust_legend')) {
+					ref.$trustLevel = 'Veteran User';
+					ref.$trustClass = 'x-tag-legend';
+				} else if (tags.includes('system_trust_veteran')) {
+					ref.$trustLevel = 'Trusted User';
+					ref.$trustClass = 'x-tag-veteran';
+				} else if (tags.includes('system_trust_trusted')) {
+					ref.$trustLevel = 'Known User';
+					ref.$trustClass = 'x-tag-trusted';
+				} else if (tags.includes('system_trust_known')) {
+					ref.$trustLevel = 'User';
+					ref.$trustClass = 'x-tag-known';
+				} else if (tags.includes('system_trust_basic')) {
+					ref.$trustLevel = 'New User';
+					ref.$trustClass = 'x-tag-basic';
+				} else {
+					ref.$trustLevel = 'Visitor';
+					ref.$trustClass = 'x-tag-untrusted';
+				}
+			}
+			if (ref.$isVIP) {
+				ref.$trustLevel = 'VRChat Team';
+				ref.$trustClass = 'x-tag-vip';
+			} else if (ref.$isTroll) {
+				ref.$trustLevel = 'Nuisance';
+				ref.$trustClass = 'x-tag-troll';
 			}
 		};
 
-		API.updateUser = function (ref) {
-			var ctx = this.user[ref.id];
-			if (ctx) {
-				var prop = {};
-				var key;
-				for (key in ctx) {
-					if (typeof ctx[key] !== 'object') {
-						prop[key] = true;
-					}
-				}
-				var _ctx = { ...ctx };
-				Object.assign(ctx, ref);
-				if (ctx.location_.tag !== ctx.location) {
-					ctx.location_ = this.parseLocation(ctx.location);
-				}
-				for (key in ctx) {
-					if (typeof ctx[key] !== 'object') {
-						prop[key] = true;
-					}
-				}
-				var has = false;
-				for (key in prop) {
-					if (ctx[key] === _ctx[key]) {
-						delete prop[key];
-					} else {
-						has = true;
-						prop[key] = [
-							ctx[key],
-							_ctx[key]
-						];
-					}
-				}
-				if (has) {
-					if (prop.location) {
-						var now = Date.now();
-						prop.location.push(now - ctx.location_at_);
-						ctx.location_at_ = now;
-					}
-					queueUserUpdate({
-						ref: ctx,
-						prop
-					});
-				}
-			} else {
-				ctx = {
-					id: ref.id,
+		API.applyUser = function (json) {
+			var ref = this.cachedUsers.get(json.id);
+			if (ref === undefined) {
+				ref = {
+					id: '',
 					username: '',
 					displayName: '',
 					bio: '',
@@ -959,80 +980,88 @@ if (window.CefSharp) {
 					location: '',
 					worldId: '',
 					instanceId: '',
-					// custom
-					location_: {},
-					location_at_: Date.now(),
-					admin_: false,
-					troll_: false,
-					trustLevel_: 'Visitor',
-					trustClass_: 'x-tag-untrusted',
+					// VRCX
+					$location: {},
+					$location_at: Date.now(),
+					$isVIP: false,
+					$isTroll: false,
+					$trustLevel: 'Visitor',
+					$trustClass: 'x-tag-untrusted',
 					//
-					...ref
+					...json
 				};
-				ctx.location_ = this.parseLocation(ctx.location);
-				this.user[ctx.id] = ctx;
-			}
-			ctx.admin_ = ctx.developerType &&
-				ctx.developerType !== 'none';
-			if (ctx.tags) {
-				ctx.admin_ = ctx.admin_ || ctx.tags.includes('admin_moderator');
-				ctx.troll_ = ctx.tags.includes('system_probable_troll') ||
-					ctx.tags.includes('system_troll');
-				if (ctx.troll_) {
-					ctx.trustLevel_ = 'Nuisance';
-					ctx.trustClass_ = 'x-tag-troll';
-				} else if (ctx.tags.includes('system_legend')) {
-					ctx.trustLevel_ = 'Legendary User';
-					ctx.trustClass_ = 'x-tag-legendary';
-				} else if (ctx.tags.includes('system_trust_legend')) {
-					ctx.trustLevel_ = 'Veteran User';
-					ctx.trustClass_ = 'x-tag-legend';
-				} else if (ctx.tags.includes('system_trust_veteran')) {
-					ctx.trustLevel_ = 'Trusted User';
-					ctx.trustClass_ = 'x-tag-veteran';
-				} else if (ctx.tags.includes('system_trust_trusted')) {
-					ctx.trustLevel_ = 'Known User';
-					ctx.trustClass_ = 'x-tag-trusted';
-				} else if (ctx.tags.includes('system_trust_known')) {
-					ctx.trustLevel_ = 'User';
-					ctx.trustClass_ = 'x-tag-known';
-				} else if (ctx.tags.includes('system_trust_basic')) {
-					ctx.trustLevel_ = 'New User';
-					ctx.trustClass_ = 'x-tag-basic';
-				} else {
-					ctx.trustLevel_ = 'Visitor';
-					ctx.trustClass_ = 'x-tag-untrusted';
+				ref.$location = this.parseLocation(ref.location);
+				applyUserTrustLevel(ref);
+				this.cachedUsers.set(ref.id, ref);
+			} else {
+				var props = {};
+				for (var prop in ref) {
+					if (isObject(ref[prop]) === false) {
+						props[prop] = true;
+					}
+				}
+				var $ref = { ...ref };
+				Object.assign(ref, json);
+				if (ref.location !== ref.$location.tag) {
+					ref.$location = this.parseLocation(ref.location);
+				}
+				applyUserTrustLevel(ref);
+				for (var prop in ref) {
+					if (isObject(ref[prop]) === false) {
+						props[prop] = true;
+					}
+				}
+				var has = false;
+				for (var prop in props) {
+					var asis = $ref[prop];
+					var tobe = ref[prop];
+					if (asis === tobe) {
+						delete props[prop];
+					} else {
+						has = true;
+						props[prop] = [
+							tobe,
+							asis
+						];
+					}
+				}
+				if (has) {
+					if (props.location) {
+						var ts = Date.now();
+						props.location.push(ts - ref.$location_at);
+						ref.$location_at = ts;
+					}
+					queueUserUpdate({
+						ref,
+						props
+					});
 				}
 			}
-			if (ctx.admin_) {
-				ctx.trustLevel_ = 'VRChat Team';
-				ctx.trustClass_ = 'x-tag-vip';
-			}
-			return ctx;
+			return ref;
 		};
 
 		/*
-			param: {
+			params: {
 				userId: string
 			}
 		*/
-		API.getCachedUser = function (param) {
+		API.getCachedUser = function (params) {
 			return new Promise((resolve, reject) => {
-				var ctx = this.user[param.userId];
-				if (ctx) {
+				var ref = this.cachedUsers.get(params.userId);
+				if (ref === undefined) {
+					this.getUser(params).catch(reject).then(resolve);
+				} else {
 					resolve({
 						cache: true,
-						ref: ctx,
-						param
+						ref,
+						params
 					});
-				} else {
-					this.getUser(param).catch(reject).then(resolve);
 				}
 			});
 		};
 
 		/*
-			param: {
+			params: {
 				n: number,
 				offset: number,
 				search: string,
@@ -1040,14 +1069,14 @@ if (window.CefSharp) {
 				order: string ('ascending', 'descending')
 			}
 		*/
-		API.getUsers = function (param) {
+		API.getUsers = function (params) {
 			return this.call('users', {
 				method: 'GET',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('USER:LIST', args);
 				return args;
@@ -1055,21 +1084,20 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				status: string ('active', 'join me', 'busy', 'offline'),
 				statusDescription: string
 			}
 		*/
-		API.saveCurrentUser = function (param) {
+		API.saveCurrentUser = function (params) {
 			return this.call(`users/${this.currentUser.id}`, {
 				method: 'PUT',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
-				// FIXME: handle this
 				this.$emit('USER:CURRENT:SAVE', args);
 				return args;
 			});
@@ -1077,48 +1105,48 @@ if (window.CefSharp) {
 
 		// API: World
 
-		API.world = {};
+		API.cachedWorlds = new Map();
 
-		API.$on('WORLD', (args) => {
-			args.ref = API.updateWorld(args.json);
+		API.$on('WORLD', function (args) {
+			args.ref = this.applyWorld(args.json);
 		});
 
-		API.$on('WORLD:LIST', (args) => {
-			args.json.forEach((json) => {
-				API.$emit('WORLD', {
-					param: {
-						worldId: json.id
-					},
-					json
-				});
-			});
+		API.$on('WORLD:LIST', function (args) {
+			if (Array.isArray(args.json)) {
+				for (var json of args.json) {
+					this.$emit('WORLD', {
+						json,
+						params: {
+							worldId: json.id
+						}
+					});
+				}
+			}
 		});
 
 		/*
-			param: {
+			params: {
 				worldId: string
 			}
 		*/
-		API.getWorld = function (param) {
-			return this.call(`worlds/${param.worldId}`, {
+		API.getWorld = function (params) {
+			return this.call(`worlds/${params.worldId}`, {
 				method: 'GET'
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('WORLD', args);
 				return args;
 			});
 		};
 
-		API.updateWorld = function (ref) {
-			var ctx = this.world[ref.id];
-			if (ctx) {
-				Object.assign(ctx, ref);
-			} else {
-				ctx = {
-					id: ref.id,
+		API.applyWorld = function (json) {
+			var ref = this.cachedWorlds.get(json.id);
+			if (ref === undefined) {
+				ref = {
+					id: '',
 					name: '',
 					description: '',
 					authorId: '',
@@ -1136,7 +1164,6 @@ if (window.CefSharp) {
 					unityPackageUrlObject: {},
 					unityPackages: [],
 					version: 0,
-					previewYoutubeId: '',
 					favorites: 0,
 					created_at: '',
 					updated_at: '',
@@ -1149,41 +1176,43 @@ if (window.CefSharp) {
 					privateOccupants: 0,
 					occupants: 0,
 					instances: [],
-					// custom
-					labs_: false,
+					// VRCX
+					$isLabs: false,
 					//
-					...ref
+					...json
 				};
-				this.world[ctx.id] = ctx;
+				this.cachedWorlds.set(ref.id, ref);
+			} else {
+				Object.assign(ref, json);
 			}
-			if (ctx.tags) {
-				ctx.labs_ = ctx.tags.includes('system_labs');
+			if (Array.isArray(ref.tags)) {
+				ref.$isLabs = ref.tags.includes('system_labs');
 			}
-			return ctx;
+			return ref;
 		};
 
 		/*
-			param: {
+			params: {
 				worldId: string
 			}
 		*/
-		API.getCachedWorld = function (param) {
+		API.getCachedWorld = function (params) {
 			return new Promise((resolve, reject) => {
-				var ctx = this.world[param.worldId];
-				if (ctx) {
+				var ref = this.cachedWorlds.get(params.worldId);
+				if (ref === undefined) {
+					this.getWorld(params).catch(reject).then(resolve);
+				} else {
 					resolve({
 						cache: true,
-						ref: ctx,
-						param
+						ref,
+						params
 					});
-				} else {
-					this.getWorld(param).catch(reject).then(resolve);
 				}
 			});
 		};
 
 		/*
-			param: {
+			params: {
 				n: number,
 				offset: number,
 				search: string,
@@ -1193,20 +1222,21 @@ if (window.CefSharp) {
 				order: string ('ascending','descending'),
 				releaseStatus: string ('public','private','hidden','all'),
 				featured: boolean
-			}
+			},
+			option: string
 		*/
-		API.getWorlds = function (param, option) {
+		API.getWorlds = function (params, option) {
 			var endpoint = 'worlds';
-			if (option) {
+			if (option !== undefined) {
 				endpoint = `worlds/${option}`;
 			}
 			return this.call(endpoint, {
 				method: 'GET',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('WORLD:LIST', args);
 				return args;
@@ -1215,106 +1245,112 @@ if (window.CefSharp) {
 
 		// API: Friend
 
-		API.friend404 = {};
+		API.friends200 = new Set();
+		API.friends404 = new Map();
 		API.isFriendLoading = false;
 
-		API.$on('LOGIN', () => {
-			API.friend404 = {};
-			API.isFriendLoading = false;
+		API.$on('LOGIN', function () {
+			this.friends200.clear();
+			this.friends404.clear();
+			this.isFriendLoading = false;
 		});
 
-		API.$on('FRIEND:LIST', (args) => {
-			args.json.forEach((json) => {
-				API.$emit('USER', {
-					param: {
-						userId: json.id
-					},
-					json
-				});
-				API.user[json.id].friend_ = true;
-				delete API.friend404[json.id];
-			});
-		});
-
-		API.checkFriends = function (mark) {
-			if (!mark) {
-				return this.currentUser.friends.every((id) => {
-					var ctx = this.user[id];
-					if (ctx &&
-						ctx.friend_) {
-						return true;
-					}
-					// NOTE: NaN이면 false라서 괜찮음
-					return this.friend404[id] >= 2;
-				});
+		API.$on('FRIEND:LIST', function (args) {
+			if (Array.isArray(args.json)) {
+				for (var json of args.json) {
+					this.$emit('USER', {
+						json,
+						params: {
+							userId: json.id
+						}
+					});
+					this.friends200.add(json.id);
+					this.friends404.delete(json.id);
+				}
 			}
-			this.currentUser.friends.forEach((id) => {
-				var ctx = this.user[id];
-				if (!(ctx &&
-					ctx.friend_)) {
-					var hit = Number(this.friend404[id]) || 0;
-					if (hit < 2) {
-						this.friend404[id] = hit + 1;
+		});
+
+		API.isAllFriendsRetrived = function (flag) {
+			var { friends } = this.currentUser;
+			if (Array.isArray(friends) === false) {
+				return false;
+			}
+			if (flag) {
+				for (var id of friends) {
+					if (this.friends200.has(id)) {
+						continue;
+					}
+					var n = this.friends404.get(id) || 0;
+					if (n < 2) {
+						this.friends404.set(id, n + 1);
 					}
 				}
-			});
+			} else {
+				for (var id of friends) {
+					if (this.friends200.has(id) === false ||
+						this.friends404.get(id) < 2) {
+						return false;
+					}
+				}
+			}
 			return true;
 		};
 
 		API.refreshFriend = function () {
-			var param = {
+			var params = {
 				n: 100,
 				offset: 0,
 				offline: false
 			};
 			var N = this.currentUser.onlineFriends.length;
-			if (!N) {
+			if (N === 0) {
 				N = this.currentUser.friends.length;
-				if (!N ||
-					this.checkFriends(false)) {
+				if (N === 0 ||
+					this.isAllFriendsRetrived(false)) {
 					return;
 				}
-				param.offline = true;
+				params.offline = true;
 			}
-			if (!this.isFriendLoading) {
-				this.isFriendLoading = true;
-				this.bulk({
-					fn: 'getFriends',
-					N,
-					param,
-					done: (ok, options) => {
-						if (this.checkFriends(param.offline)) {
-							this.isFriendLoading = false;
-						} else {
-							N = this.currentUser.friends.length - param.offset;
-							if (N <= 0) {
-								N = this.currentUser.friends.length;
-							}
-							options.N = N;
-							param.offset = 0;
-							param.offline = true;
-							this.bulk(options);
-						}
+			if (this.isFriendLoading) {
+				return;
+			}
+			this.isFriendLoading = true;
+			this.bulk({
+				fn: 'getFriends',
+				N,
+				params,
+				done(ok, options) {
+					if (this.isAllFriendsRetrived(params.offline)) {
+						this.isFriendLoading = false;
+						return;
 					}
-				});
-			}
+					var { length } = this.currentUser.friends;
+					options.N = length - params.offset;
+					if (options.N <= 0) {
+						options.N = length;
+					}
+					params.offset = 0;
+					params.offline = true;
+					this.bulk(options);
+				}
+			});
 		};
 
 		/*
-			param: {
+			params: {
 				n: number,
 				offset: number,
 				offline: boolean
 			}
 		*/
-		API.getFriends = function (param) {
+		API.getFriends = function (params) {
 			return this.call('auth/user/friends', {
 				method: 'GET',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('FRIEND:LIST', args);
 				return args;
@@ -1322,17 +1358,17 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				userId: string
 			}
 		*/
-		API.sendFriendRequest = function (param) {
-			return this.call(`user/${param.userId}/friendRequest`, {
+		API.sendFriendRequest = function (params) {
+			return this.call(`user/${params.userId}/friendRequest`, {
 				method: 'POST'
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('FRIEND:REQUEST', args);
 				return args;
@@ -1340,17 +1376,17 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				userId: string
 			}
 		*/
-		API.cancelFriendRequest = function (param) {
-			return this.call(`user/${param.userId}/friendRequest`, {
+		API.cancelFriendRequest = function (params) {
+			return this.call(`user/${params.userId}/friendRequest`, {
 				method: 'DELETE'
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('FRIEND:REQUEST:CANCEL', args);
 				return args;
@@ -1358,17 +1394,17 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				userId: string
 			}
 		*/
-		API.deleteFriend = function (param) {
-			return this.call(`auth/user/friends/${param.userId}`, {
+		API.deleteFriend = function (params) {
+			return this.call(`auth/user/friends/${params.userId}`, {
 				method: 'DELETE'
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('FRIEND:DELETE', args);
 				return args;
@@ -1376,17 +1412,17 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				userId: string
 			}
 		*/
-		API.getFriendStatus = function (param) {
-			return this.call(`user/${param.userId}/friendStatus`, {
+		API.getFriendStatus = function (params) {
+			return this.call(`user/${params.userId}/friendStatus`, {
 				method: 'GET'
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('FRIEND:STATUS', args);
 				return args;
@@ -1395,52 +1431,52 @@ if (window.CefSharp) {
 
 		// API: Avatar
 
-		API.avatar = {};
+		API.cachedAvatars = new Map();
 
-		API.$on('AVATAR', (args) => {
-			args.ref = API.updateAvatar(args.json);
+		API.$on('AVATAR', function (args) {
+			args.ref = this.applyAvatar(args.json);
 		});
 
-		API.$on('AVATAR:LIST', (args) => {
-			args.json.forEach((json) => {
-				API.$emit('AVATAR', {
-					param: {
-						avatarId: json.id
-					},
-					json
-				});
-			});
+		API.$on('AVATAR:LIST', function (args) {
+			if (Array.isArray(args.json)) {
+				for (var json of args.json) {
+					this.$emit('AVATAR', {
+						json,
+						params: {
+							avatarId: json.id
+						}
+					});
+				}
+			}
 		});
 
-		API.$on('AVATAR:SELECT', (args) => {
-			API.$emit('USER:CURRENT', args);
+		API.$on('AVATAR:SELECT', function (args) {
+			this.$emit('USER:CURRENT', args);
 		});
 
 		/*
-			param: {
+			params: {
 				avatarId: string
 			}
 		*/
-		API.getAvatar = function (param) {
-			return this.call(`avatars/${param.avatarId}`, {
+		API.getAvatar = function (params) {
+			return this.call(`avatars/${params.avatarId}`, {
 				method: 'GET'
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('AVATAR', args);
 				return args;
 			});
 		};
 
-		API.updateAvatar = function (ref) {
-			var ctx = this.avatar[ref.id];
-			if (ctx) {
-				Object.assign(ctx, ref);
-			} else {
-				ctx = {
-					id: ref.id,
+		API.applyAvatar = function (json) {
+			var ref = this.cachedAvatars.get(json.id);
+			if (ref === undefined) {
+				ref = {
+					id: '',
 					name: '',
 					description: '',
 					authorId: '',
@@ -1457,35 +1493,37 @@ if (window.CefSharp) {
 					unityPackageUrlObject: {},
 					created_at: '',
 					updated_at: '',
-					...ref
+					...json
 				};
-				this.avatar[ctx.id] = ctx;
+				this.cachedAvatars.set(ref.id, ref);
+			} else {
+				Object.assign(ref, json);
 			}
-			return ctx;
+			return ref;
 		};
 
 		/*
-			param: {
+			params: {
 				avatarId: string
 			}
 		*/
-		API.getCachedAvatar = function (param) {
+		API.getCachedAvatar = function (params) {
 			return new Promise((resolve, reject) => {
-				var ctx = this.avatar[param.avatarId];
-				if (ctx) {
+				var ref = this.cachedAvatars.get(params.avatarId);
+				if (ref === undefined) {
+					this.getAvatar(params).catch(reject).then(resolve);
+				} else {
 					resolve({
 						cache: true,
-						ref: ctx,
-						param
+						ref,
+						params
 					});
-				} else {
-					this.getAvatar(param).catch(reject).then(resolve);
 				}
 			});
 		};
 
 		/*
-			param: {
+			params: {
 				n: number,
 				offset: number,
 				search: string,
@@ -1497,14 +1535,14 @@ if (window.CefSharp) {
 				featured: boolean
 			}
 		*/
-		API.getAvatars = function (param) {
+		API.getAvatars = function (params) {
 			return this.call('avatars', {
 				method: 'GET',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('AVATAR:LIST', args);
 				return args;
@@ -1512,18 +1550,18 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				avatarId: string
 			}
 		*/
-		API.selectAvatar = function (param) {
-			return this.call(`avatars/${param.avatarId}/select`, {
+		API.selectAvatar = function (params) {
+			return this.call(`avatars/${params.avatarId}/select`, {
 				method: 'PUT',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('AVATAR:SELECT', args);
 				return args;
@@ -1532,118 +1570,118 @@ if (window.CefSharp) {
 
 		// API: Notification
 
-		API.notification = {};
+		API.cachedNotifications = new Map();
 		API.isNotificationLoading = false;
 
-		API.$on('LOGIN', () => {
-			API.notification = {};
-			API.isNotificationLoading = false;
+		API.$on('LOGIN', function () {
+			this.cachedNotifications.clear();
+			this.isNotificationLoading = false;
 		});
 
-		API.$on('NOTIFICATION', (args) => {
-			args.ref = API.updateNotification(args.json);
+		API.$on('NOTIFICATION', function (args) {
+			args.ref = this.applyNotification(args.json);
 		});
 
-		API.$on('NOTIFICATION:LIST', (args) => {
-			args.json.forEach((json) => {
-				API.$emit('NOTIFICATION', {
-					param: {
-						notificationId: json.id
-					},
-					json
-				});
+		API.$on('NOTIFICATION:LIST', function (args) {
+			if (Array.isArray(args.json)) {
+				for (var json of args.json) {
+					this.$emit('NOTIFICATION', {
+						json,
+						params: {
+							notificationId: json.id
+						}
+					});
+				}
+			}
+		});
+
+		API.$on('NOTIFICATION:ACCEPT', function (args) {
+			var ref = this.cachedNotifications.get(args.params.notificationId);
+			if (ref === undefined ||
+				ref.$isDeleted) {
+				return;
+			}
+			args.ref = ref;
+			ref.$isDeleted = true;
+			this.$emit('NOTIFICATION:@DELETE', {
+				ref,
+				params: {
+					notificationId: ref.id
+				}
+			});
+			this.$emit('FRIEND:ADD', {
+				params: {
+					userId: ref.senderUserId
+				}
 			});
 		});
 
-		API.$on('NOTIFICATION:ACCEPT', (args) => {
-			var ctx = API.notification[args.param.notificationId];
-			if (ctx &&
-				!ctx.hide_) {
-				ctx.hide_ = true;
-				args.ref = ctx;
-				API.$emit('NOTIFICATION:@DELETE', {
-					param: {
-						notificationId: ctx.id
-					},
-					ref: ctx
-				});
-				API.$emit('FRIEND:ADD', {
-					param: {
-						userId: ctx.senderUserId
-					}
-				});
+		API.$on('NOTIFICATION:HIDE', function (args) {
+			var ref = this.cachedNotifications.get(args.params.notificationId);
+			if (ref === undefined &&
+				ref.$isDeleted) {
+				return;
 			}
-		});
-
-		API.$on('NOTIFICATION:HIDE', (args) => {
-			var ctx = API.notification[args.param.notificationId];
-			if (ctx &&
-				!ctx.hide_) {
-				ctx.hide_ = true;
-				args.ref = ctx;
-				API.$emit('NOTIFICATION:@DELETE', {
-					param: {
-						notificationId: ctx.id
-					},
-					ref: ctx
-				});
-			}
-		});
-
-		API.markAllNotificationsAsExpired = function () {
-			for (var key in this.notification) {
-				var ctx = this.notification[key];
-				if (!ctx.hide_) {
-					ctx.expired_ = true;
+			args.ref = ref;
+			ref.$isDeleted = true;
+			this.$emit('NOTIFICATION:@DELETE', {
+				ref,
+				params: {
+					notificationId: ref.id
 				}
+			});
+		});
+
+		API.expireNotifications = function () {
+			for (var ref of this.cachedNotifications.values()) {
+				ref.$isExpired = true;
 			}
 		};
 
-		API.checkExpiredNotifcations = function () {
-			for (var key in this.notification) {
-				var ctx = this.notification[key];
-				if (ctx.expired_ &&
-					!ctx.hide_) {
-					ctx.hide_ = true;
-					this.$emit('NOTIFICATION:@DELETE', {
-						param: {
-							notificationId: ctx.id
-						},
-						ref: ctx
-					});
+		API.deleteExpiredNotifcations = function () {
+			for (var ref of this.cachedNotifications.values()) {
+				if (ref.$isDeleted ||
+					ref.$isExpired === false) {
+					continue;
 				}
+				ref.$isDeleted = true;
+				this.$emit('NOTIFICATION:@DELETE', {
+					ref,
+					params: {
+						notificationId: ref.id
+					}
+				});
 			}
 		};
 
 		API.refreshNotification = function () {
 			// NOTE : 캐시 때문에 after=~ 로는 갱신이 안됨. 그래서 첨부터 불러옴
-			if (!this.isNotificationLoading) {
-				this.isNotificationLoading = true;
-				this.markAllNotificationsAsExpired();
-				this.bulk({
-					fn: 'getNotifications',
-					N: -1,
-					param: {
-						n: 100,
-						offset: 0
-					},
-					done: (ok) => {
-						if (ok) {
-							this.checkExpiredNotifcations();
-						}
-						this.isNotificationLoading = false;
-					}
-				});
+			if (this.isNotificationLoading) {
+				return;
 			}
+			this.isNotificationLoading = true;
+			this.expireNotifications();
+			this.bulk({
+				fn: 'getNotifications',
+				N: -1,
+				params: {
+					n: 100,
+					offset: 0
+				},
+				done(ok) {
+					if (ok) {
+						this.deleteExpiredNotifcations();
+					}
+					this.isNotificationLoading = false;
+				}
+			});
 		};
 
-		API.updateNotification = function (ref) {
-			var ctx = this.notification[ref.id];
-			if (ctx) {
-				Object.assign(ctx, ref);
-			} else {
-				ctx = {
-					id: ref.id,
+		API.applyNotification = function (json) {
+			var ref = this.cachedNotifications.get(json.id);
+			if (ref === undefined) {
+				ref = {
+					id: '',
 					senderUserId: '',
 					senderUsername: '',
 					type: '',
@@ -1651,28 +1689,35 @@ if (window.CefSharp) {
 					details: {},
 					seen: false,
 					created_at: '',
-					...ref
+					// VRCX
+					$isDeleted: false,
+					$isExpired: false,
+					//
+					...json
 				};
-				this.notification[ctx.id] = ctx;
+				this.cachedNotifications.set(ref.id, ref);
+			} else {
+				Object.assign(ref, json);
+				ref.$isExpired = false;
 			}
-			if (typeof ctx.details !== 'object') {
+			if (isObject(ref.details) === false) {
 				var details = {};
-				try {
-					var json = JSON.parse(ctx.details);
-					if (typeof json === 'object') {
-						details = json;
+				if (ref.details !== '{}') {
+					try {
+						var obj = JSON.parse(ref.details);
+						if (isObject(obj)) {
+							details = obj;
+						}
+					} catch (err) {
 					}
-				} catch (err) {
-					console.error(err);
 				}
-				ctx.details = details;
+				ref.details = details;
 			}
-			ctx.expired_ = false;
-			return ctx;
+			return ref;
 		};
 
 		/*
-			param: {
+			params: {
 				n: number,
 				offset: number,
 				sent: boolean,
@@ -1680,14 +1725,14 @@ if (window.CefSharp) {
 				after: string (ISO8601 or 'five_minutes_ago')
 			}
 		*/
-		API.getNotifications = function (param) {
+		API.getNotifications = function (params) {
 			return this.call('auth/user/notifications', {
 				method: 'GET',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('NOTIFICATION:LIST', args);
 				return args;
@@ -1701,14 +1746,14 @@ if (window.CefSharp) {
 				var args = {
 					json
 				};
-				// FIXME: 고쳐줘
+				// FIXME: NOTIFICATION:CLEAR 핸들링
 				this.$emit('NOTIFICATION:CLEAR', args);
 				return args;
 			});
 		};
 
 		/*
-			param: {
+			params: {
 				receiverUserId: string,
 				type: string,
 				message: string,
@@ -1716,14 +1761,14 @@ if (window.CefSharp) {
 				details: json-string
 			}
 		*/
-		API.sendNotification = function (param) {
-			return this.call(`user/${param.receiverUserId}/notification`, {
+		API.sendNotification = function (params) {
+			return this.call(`user/${params.receiverUserId}/notification`, {
 				method: 'POST',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('NOTIFICATION:SEND', args);
 				return args;
@@ -1731,17 +1776,17 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				notificationId: string
 			}
 		*/
-		API.acceptNotification = function (param) {
-			return this.call(`auth/user/notifications/${param.notificationId}/accept`, {
+		API.acceptNotification = function (params) {
+			return this.call(`auth/user/notifications/${params.notificationId}/accept`, {
 				method: 'PUT'
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('NOTIFICATION:ACCEPT', args);
 				return args;
@@ -1749,17 +1794,17 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				notificationId: string
 			}
 		*/
-		API.hideNotification = function (param) {
-			return this.call(`auth/user/notifications/${param.notificationId}/hide`, {
+		API.hideNotification = function (params) {
+			return this.call(`auth/user/notifications/${params.notificationId}/hide`, {
 				method: 'PUT'
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('NOTIFICATION:HIDE', args);
 				return args;
@@ -1767,12 +1812,11 @@ if (window.CefSharp) {
 		};
 
 		API.getFriendRequest = function (userId) {
-			for (var key in this.notification) {
-				var ctx = this.notification[key];
-				if (ctx.type === 'friendRequest' &&
-					ctx.senderUserId === userId &&
-					!ctx.hide_) {
-					return key;
+			for (var ref of this.cachedNotifications.values()) {
+				if (ref.$isDeleted === false &&
+					ref.type === 'friendRequest' &&
+					ref.senderUserId === userId) {
+					return ref.id;
 				}
 			}
 			return '';
@@ -1780,120 +1824,120 @@ if (window.CefSharp) {
 
 		// API: PlayerModeration
 
-		API.playerModeration = {};
+		API.cachedPlayerModerations = new Map();
 		API.isPlayerModerationLoading = false;
 
-		API.$on('LOGIN', () => {
-			API.playerModeration = {};
-			API.isPlayerModerationLoading = false;
+		API.$on('LOGIN', function () {
+			this.cachedPlayerModerations.clear();
+			this.isPlayerModerationLoading = false;
 		});
 
-		API.$on('PLAYER-MODERATION', (args) => {
-			args.ref = API.updatePlayerModeration(args.json);
+		API.$on('PLAYER-MODERATION', function (args) {
+			args.ref = this.applyPlayerModeration(args.json);
 		});
 
-		API.$on('PLAYER-MODERATION:LIST', (args) => {
-			args.json.forEach((json) => {
-				API.$emit('PLAYER-MODERATION', {
-					param: {
-						playerModerationId: json.id
-					},
-					json
-				});
-			});
-		});
-
-		API.$on('PLAYER-MODERATION:SEND', (args) => {
-			API.$emit('PLAYER-MODERATION', {
-				param: {
-					playerModerationId: args.json.id
-				},
-				json: args.json
-			});
-		});
-
-		API.$on('PLAYER-MODERATION:DELETE', (args) => {
-			API.handleDeletePlayerModeration(args.param.type, args.param.moderated);
-		});
-
-		API.markAllPlayerModerationsAsExpired = function () {
-			for (var key in this.playerModeration) {
-				var ctx = this.playerModeration[key];
-				if (!ctx.hide_) {
-					ctx.expired_ = true;
+		API.$on('PLAYER-MODERATION:LIST', function (args) {
+			if (Array.isArray(args.json)) {
+				for (var json of args.json) {
+					this.$emit('PLAYER-MODERATION', {
+						json,
+						params: {
+							playerModerationId: json.id
+						}
+					});
 				}
+			}
+		});
+
+		API.$on('PLAYER-MODERATION:SEND', function (args) {
+			this.$emit('PLAYER-MODERATION', {
+				json: args.json,
+				params: {
+					playerModerationId: args.json.id
+				}
+			});
+		});
+
+		API.$on('PLAYER-MODERATION:DELETE', function (args) {
+			var { type, moderated } = args.param;
+			var cuid = this.currentUser.id;
+			for (var ref of this.cachedPlayerModerations.values()) {
+				if (ref.$isDeleted === false &&
+					ref.type === type &&
+					ref.targetUserId === moderated &&
+					ref.sourceUserId === cuid) {
+					ref.$isDeleted = true;
+					this.$emit('PLAYER-MODERATION:@DELETE', {
+						ref,
+						params: {
+							playerModerationId: ref.id
+						}
+					});
+				}
+			}
+		});
+
+		API.expirePlayerModerations = function () {
+			for (var ref of this.cachedPlayerModerations.values()) {
+				ref.$isExpired = true;
 			}
 		};
 
-		API.checkExpiredPlayerModerations = function () {
-			for (var key in this.playerModeration) {
-				var ctx = this.playerModeration[key];
-				if (ctx.expired_ &&
-					!ctx.hide_) {
-					ctx.hide_ = true;
-					this.$emit('PLAYER-MODERATION:@DELETE', {
-						param: {
-							playerModerationId: ctx.id
-						},
-						ref: ctx
-					});
+		API.deleteExpiredPlayerModerations = function () {
+			for (var ref of this.cachedPlayerModerations.values()) {
+				if (ref.$isDeleted ||
+					ref.$isExpired === false) {
+					continue;
 				}
+				ref.$isDeleted = true;
+				this.$emit('PLAYER-MODERATION:@DELETE', {
+					ref,
+					params: {
+						playerModerationId: ref.id
+					}
+				});
 			}
 		};
 
 		API.refreshPlayerModeration = function () {
-			if (!this.isPlayerModerationLoading) {
-				this.isPlayerModerationLoading = true;
-				this.markAllPlayerModerationsAsExpired();
-				Promise.all([
-					this.getPlayerModerations(),
-					this.getPlayerModerationsAgainstMe()
-				]).finally(() => {
-					this.isPlayerModerationLoading = false;
-				}).then(() => {
-					this.checkExpiredPlayerModerations();
-				});
+			if (this.isPlayerModerationLoading) {
+				return;
 			}
+			this.isPlayerModerationLoading = true;
+			this.expirePlayerModerations();
+			Promise.all([
+				this.getPlayerModerations(),
+				this.getPlayerModerationsAgainstMe()
+			]).finally(() => {
+				this.isPlayerModerationLoading = false;
+			}).then(() => {
+				this.deleteExpiredPlayerModerations();
+			});
 		};
 
-		API.handleDeletePlayerModeration = function (type, moderated) {
-			var cuid = this.currentUser.id;
-			for (var key in this.playerModeration) {
-				var ctx = this.playerModeration[key];
-				if (ctx.type === type &&
-					ctx.targetUserId === moderated &&
-					ctx.sourceUserId === cuid &&
-					!ctx.hide_) {
-					ctx.hide_ = true;
-					this.$emit('PLAYER-MODERATION:@DELETE', {
-						param: {
-							playerModerationId: ctx.id
-						},
-						ref: ctx
-					});
-				}
-			}
-		};
-
-		API.updatePlayerModeration = function (ref) {
-			var ctx = this.playerModeration[ref.id];
-			if (ctx) {
-				Object.assign(ctx, ref);
-			} else {
-				ctx = {
-					id: ref.id,
+		API.applyPlayerModeration = function (json) {
+			var ref = this.cachedPlayerModerations.get(json.id);
+			if (ref === undefined) {
+				ref = {
+					id: '',
 					type: '',
 					sourceUserId: '',
 					sourceDisplayName: '',
 					targetUserId: '',
 					targetDisplayName: '',
 					created: '',
-					...ref
+					// VRCX
+					$isDeleted: false,
+					$isExpired: false,
+					//
+					...json
 				};
-				this.playerModeration[ctx.id] = ctx;
+				this.cachedPlayerModerations.set(ref.id, ref);
+			} else {
+				Object.assign(ref, json);
+				ref.$isExpired = false;
 			}
-			ctx.expired_ = false;
-			return ctx;
+			return ref;
 		};
 
 		API.getPlayerModerations = function () {
@@ -1921,20 +1965,20 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				moderated: string,
 				type: string
 			}
 		*/
 		// old-way: POST auth/user/blocks {blocked:userId}
-		API.sendPlayerModeration = function (param) {
+		API.sendPlayerModeration = function (params) {
 			return this.call('auth/user/playermoderations', {
 				method: 'POST',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('PLAYER-MODERATION:SEND', args);
 				return args;
@@ -1942,20 +1986,20 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				moderated: string,
 				type: string
 			}
 		*/
 		// old-way: PUT auth/user/unblocks {blocked:userId}
-		API.deletePlayerModeration = function (param) {
+		API.deletePlayerModeration = function (params) {
 			return this.call('auth/user/unplayermoderate', {
 				method: 'PUT',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('PLAYER-MODERATION:DELETE', args);
 				return args;
@@ -1964,358 +2008,322 @@ if (window.CefSharp) {
 
 		// API: Favorite
 
-		API.favorite = {};
-		API.favoriteGroup = {};
-		API.favoriteObject = {};
+		API.cachedFavorites = new Map();
+		API.cachedFavoritesByObjectId = new Map();
+		API.cachedFavoriteGroups = new Map();
 		API.favoriteFriendGroups = [];
 		API.favoriteWorldGroups = [];
 		API.favoriteAvatarGroups = [];
 		API.isFavoriteLoading = false;
 		API.isFavoriteGroupLoading = false;
 
-		API.$on('LOGIN', () => {
-			API.favorite = {};
-			API.favoriteGroup = {};
-			API.favoriteObject = {};
-			API.favoriteFriendGroups = [];
-			API.favoriteWorldGroups = [];
-			API.favoriteAvatarGroups = [];
-			API.isFavoriteLoading = false;
-			API.isFavoriteGroupLoading = false;
-			API.refreshFavorite();
+		API.$on('LOGIN', function () {
+			this.cachedFavorites.clear();
+			this.cachedFavoritesByObjectId.clear();
+			this.cachedFavoriteGroups.clear();
+			this.favoriteFriendGroups = [];
+			this.favoriteWorldGroups = [];
+			this.favoriteAvatarGroups = [];
+			this.isFavoriteLoading = false;
+			this.isFavoriteGroupLoading = false;
+			this.refreshFavorite();
 		});
 
-		API.$on('FAVORITE', (args) => {
-			var ref = API.updateFavorite(args.json);
-			args.ref = ref;
-			if (!ref.hide_ &&
-				API.favoriteObject[ref.favoriteId] !== ref) {
-				API.favoriteObject[ref.favoriteId] = ref;
-				if (ref.type === 'friend') {
-					API.favoriteFriendGroups.find((ctx) => {
-						if (ctx.name === ref.group_) {
-							++ctx.count;
-							return true;
-						}
-						return false;
-					});
-				} else if (ref.type === 'world') {
-					API.favoriteWorldGroups.find((ctx) => {
-						if (ctx.name === ref.group_) {
-							++ctx.count;
-							return true;
-						}
-						return false;
-					});
-				} else if (ref.type === 'avatar') {
-					API.favoriteAvatarGroups.find((ctx) => {
-						if (ctx.name === ref.group_) {
-							++ctx.count;
-							return true;
-						}
-						return false;
-					});
-				}
+		API.$on('FAVORITE', function (args) {
+			var ref = this.applyFavorite(args.json);
+			if (ref.$isDeleted) {
+				return;
 			}
+			args.ref = ref;
+			this.cachedFavoritesByObjectId.set(ref.favoriteId, ref);
 		});
 
-		API.$on('FAVORITE:@DELETE', (args) => {
+		API.$on('FAVORITE:@DELETE', function (args) {
 			var { ref } = args;
-			if (API.favoriteObject[ref.favoriteId]) {
-				delete API.favoriteObject[ref.favoriteId];
-				if (ref.type === 'friend') {
-					API.favoriteFriendGroups.find((ctx) => {
-						if (ctx.name === ref.group_) {
-							--ctx.count;
-							return true;
+			if (ref.$groupRef !== null) {
+				--ref.$groupRef.count;
+			}
+		});
+
+		API.$on('FAVORITE:LIST', function (args) {
+			if (Array.isArray(args.json)) {
+				for (var json of args.json) {
+					this.$emit('FAVORITE', {
+						json,
+						params: {
+							favoriteId: json.id
 						}
-						return false;
-					});
-				} else if (ref.type === 'world') {
-					API.favoriteWorldGroups.find((ctx) => {
-						if (ctx.name === ref.group_) {
-							--ctx.count;
-							return true;
-						}
-						return false;
-					});
-				} else if (ref.type === 'avatar') {
-					API.favoriteAvatarGroups.find((ctx) => {
-						if (ctx.name === ref.group_) {
-							--ctx.count;
-							return true;
-						}
-						return false;
 					});
 				}
 			}
 		});
 
-		API.$on('FAVORITE:LIST', (args) => {
-			args.json.forEach((json) => {
-				API.$emit('FAVORITE', {
-					param: {
-						favoriteId: json.id
-					},
-					json
-				});
-			});
-		});
-
-		API.$on('FAVORITE:ADD', (args) => {
-			API.$emit('FAVORITE', {
-				param: {
+		API.$on('FAVORITE:ADD', function (args) {
+			this.$emit('FAVORITE', {
+				json: args.json,
+				params: {
 					favoriteId: args.json.id
-				},
-				json: args.json
+				}
 			});
 		});
 
-		API.$on('FAVORITE:DELETE', (args) => {
-			API.handleDeleteFavorite(args.param.objectId);
+		API.$on('FAVORITE:DELETE', function (args) {
+			var ref = this.cachedFavoritesByObjectId.get(args.params.objectId);
+			if (ref === undefined ||
+				ref.$isDeleted) {
+				return;
+			}
+			ref.$isDeleted = true;
+			API.$emit('FAVORITE:@DELETE', {
+				ref,
+				params: {
+					favoriteId: ref.id
+				}
+			});
 		});
 
-		API.$on('FAVORITE:GROUP', (args) => {
-			var ref = API.updateFavoriteGroup(args.json);
+		API.$on('FAVORITE:GROUP', function (args) {
+			var ref = this.applyFavoriteGroup(args.json);
+			if (ref.$isDeleted) {
+				return;
+			}
 			args.ref = ref;
-			if (!ref.hide_) {
-				if (ref.type === 'friend') {
-					API.favoriteFriendGroups.find((ctx) => {
-						if (ctx.name === ref.name) {
-							ctx.displayName = ref.displayName;
-							return true;
+			if (ref.$groupRef !== null) {
+				ref.$groupRef.displayName = ref.displayName;
+			}
+		});
+
+		API.$on('FAVORITE:GROUP:LIST', function (args) {
+			if (Array.isArray(args.json)) {
+				for (var json of args.json) {
+					this.$emit('FAVORITE:GROUP', {
+						json,
+						params: {
+							favoriteGroupId: json.id
 						}
-						return false;
-					});
-				} else if (ref.type === 'world') {
-					API.favoriteWorldGroups.find((ctx) => {
-						if (ctx.name === ref.name) {
-							ctx.displayName = ref.displayName;
-							return true;
-						}
-						return false;
-					});
-				} else if (ref.type === 'avatar') {
-					API.favoriteAvatarGroups.find((ctx) => {
-						if (ctx.name === ref.name) {
-							ctx.displayName = ref.displayName;
-							return true;
-						}
-						return false;
 					});
 				}
 			}
 		});
 
-		API.$on('FAVORITE:GROUP:LIST', (args) => {
-			args.json.forEach((json) => {
-				API.$emit('FAVORITE:GROUP', {
-					param: {
-						favoriteGroupId: json.id
-					},
-					json
-				});
-			});
-		});
-
-		API.$on('FAVORITE:GROUP:SAVE', (args) => {
-			API.$emit('FAVORITE:GROUP', {
-				param: {
+		API.$on('FAVORITE:GROUP:SAVE', function (args) {
+			this.$emit('FAVORITE:GROUP', {
+				json: args.json,
+				params: {
 					favoriteGroupId: args.json.id
-				},
-				json: args.json
+				}
 			});
 		});
 
-		API.$on('FAVORITE:GROUP:CLEAR', (args) => {
-			API.handleClearFavoriteGroup(args.param.group);
-		});
-
-		API.$on('FAVORITE:FRIEND:LIST', (args) => {
-			args.json.forEach((json) => {
-				API.$emit('USER', {
-					param: {
-						userId: json.id
-					},
-					json
+		API.$on('FAVORITE:GROUP:CLEAR', function (args) {
+			var key = `${args.params.type}:${args.params.group}`;
+			for (var ref of this.cachedFavorites.values()) {
+				if (ref.$isDeleted ||
+					ref.$groupKey !== key) {
+					continue;
+				}
+				ref.$isDeleted = true;
+				API.$emit('FAVORITE:@DELETE', {
+					ref,
+					params: {
+						favoriteId: ref.id
+					}
 				});
-			});
+			}
 		});
 
-		API.$on('FAVORITE:WORLD:LIST', (args) => {
-			args.json.forEach((json) => {
-				if (json.id !== '???') {
-					// FIXME
-					// json.favoriteId로 따로 불러와야 하나?
-					// 근데 ???가 많으면 과다 요청이 될듯
-					API.$emit('WORLD', {
-						param: {
+		API.$on('FAVORITE:FRIEND:LIST', function (args) {
+			if (Array.isArray(args.json)) {
+				for (var json of args.json) {
+					this.$emit('USER', {
+						json,
+						params: {
+							userId: json.id
+						}
+					});
+				}
+			}
+		});
+
+		API.$on('FAVORITE:WORLD:LIST', function (args) {
+			if (Array.isArray(args.json)) {
+				for (var json of args.json) {
+					if (json.id === '???') {
+						// FIXME
+						// json.favoriteId로 따로 불러와야 하나?
+						// 근데 ???가 많으면 과다 요청이 될듯
+						continue;
+					}
+					this.$emit('WORLD', {
+						json,
+						params: {
 							worldId: json.id
-						},
-						json
+						}
 					});
 				}
-			});
+			}
 		});
 
-		API.$on('FAVORITE:AVATAR:LIST', (args) => {
-			args.json.forEach((json) => {
-				if (json.releaseStatus !== 'hidden') {
-					// NOTE: 얘는 또 더미 데이터로 옴
-					API.$emit('AVATAR', {
-						param: {
+		API.$on('FAVORITE:AVATAR:LIST', function (args) {
+			if (Array.isArray(args.json)) {
+				for (var json of args.json) {
+					if (json.releaseStatus === 'hidden') {
+						// NOTE: 얘는 또 더미 데이터로 옴
+						continue;
+					}
+					this.$emit('AVATAR', {
+						json,
+						params: {
 							avatarId: json.id
-						},
-						json
+						}
 					});
 				}
-			});
+			}
 		});
 
-		API.markAllFavoritesAsExpired = function () {
-			for (var key in this.favorite) {
-				var ctx = this.favorite[key];
-				if (!ctx.hide_) {
-					ctx.expired_ = true;
-				}
+		API.expireFavorites = function () {
+			for (var ref of this.cachedFavorites.values()) {
+				ref.$isExpired = true;
 			}
 		};
 
-		API.checkExpiredFavorites = function () {
-			for (var key in this.favorite) {
-				var ctx = this.favorite[key];
-				if (ctx.expired_ &&
-					!ctx.hide_) {
-					ctx.hide_ = true;
-					this.$emit('FAVORITE:@DELETE', {
-						param: {
-							favoriteId: ctx.id
-						},
-						ref: ctx
-					});
+		API.deleteExpiredFavorites = function () {
+			for (var ref of this.cachedFavorites.values()) {
+				if (ref.$isDeleted ||
+					ref.$isExpired === false) {
+					continue;
 				}
+				ref.$isDeleted = true;
+				this.$emit('FAVORITE:@DELETE', {
+					ref,
+					params: {
+						favoriteId: ref.id
+					}
+				});
 			}
 		};
 
 		API.refreshFavorite = function () {
-			if (!this.isFavoriteLoading) {
-				this.isFavoriteLoading = true;
-				this.markAllFavoritesAsExpired();
-				this.bulk({
-					fn: 'getFavorites',
-					N: -1,
-					param: {
-						n: 100,
-						offset: 0
-					},
-					done: (ok) => {
-						if (ok) {
-							this.checkExpiredFavorites();
-						}
-						this.refreshFavoriteGroup();
-						this.refreshFavoriteFriends();
-						this.refreshFavoriteWorlds();
-						this.refreshFavoriteAvatars();
-						this.isFavoriteLoading = false;
-					}
-				});
+			if (this.isFavoriteLoading) {
+				return;
 			}
+			this.isFavoriteLoading = true;
+			this.expireFavorites();
+			this.bulk({
+				fn: 'getFavorites',
+				N: -1,
+				params: {
+					n: 100,
+					offset: 0
+				},
+				done(ok) {
+					if (ok) {
+						this.deleteExpiredFavorites();
+					}
+					this.refreshFavoriteGroup();
+					this.refreshFavoriteFriends();
+					this.refreshFavoriteWorlds();
+					this.refreshFavoriteAvatars();
+					this.isFavoriteLoading = false;
+				}
+			});
 		};
 
 		API.refreshFavoriteFriends = function () {
 			var N = 0;
-			for (var key in this.favorite) {
-				var ctx = this.favorite[key];
-				if (ctx.type === 'friend' &&
-					!ctx.hide_) {
+			for (var ref of this.cachedFavorites.values()) {
+				if (ref.$isDeleted === false &&
+					ref.type === 'friend') {
 					++N;
 				}
 			}
-			if (N) {
-				this.bulk({
-					fn: 'getFavoriteFriends',
-					N,
-					param: {
-						n: 100,
-						offset: 0
-					}
-				});
+			// FIXME
+			// N이 0일땐 -1로 해야하지 않나?
+			// refreshFavoriteWorlds, refreshFavoriteAvatars 도 마찬가지
+			if (N === 0) {
+				return;
 			}
+			this.bulk({
+				fn: 'getFavoriteFriends',
+				N,
+				params: {
+					n: 100,
+					offset: 0
+				}
+			});
 		};
 
 		API.refreshFavoriteWorlds = function () {
 			var N = 0;
-			for (var key in this.favorite) {
-				var ctx = this.favorite[key];
-				if (ctx.type === 'world' &&
-					!ctx.hide_) {
+			for (var ref of this.cachedFavorites.values()) {
+				if (ref.$isDeleted === false &&
+					ref.type === 'world') {
 					++N;
 				}
 			}
-			if (N) {
-				this.bulk({
-					fn: 'getFavoriteWorlds',
-					N,
-					param: {
-						n: 100,
-						offset: 0
-					}
-				});
+			if (N === 0) {
+				return;
 			}
+			this.bulk({
+				fn: 'getFavoriteWorlds',
+				N,
+				params: {
+					n: 100,
+					offset: 0
+				}
+			});
 		};
 
 		API.refreshFavoriteAvatars = function () {
 			var N = 0;
-			for (var key in this.favorite) {
-				var ctx = this.favorite[key];
-				if (ctx.type === 'avatar' &&
-					!ctx.hide_) {
+			for (var ref of this.cachedFavorites.values()) {
+				if (ref.$isDeleted === false &&
+					ref.type === 'avatar') {
 					++N;
 				}
 			}
-			if (N) {
-				this.bulk({
-					fn: 'getFavoriteAvatars',
-					N,
-					param: {
-						n: 100,
-						offset: 0
+			if (N === 0) {
+				return;
+			}
+			this.bulk({
+				fn: 'getFavoriteAvatars',
+				N,
+				params: {
+					n: 100,
+					offset: 0
+				}
+			});
+		};
+
+		API.expireFavoriteGroups = function () {
+			for (var ref of this.cachedFavoriteGroups.values()) {
+				ref.$isExpired = true;
+			}
+		};
+
+		API.deleteExpiredFavoriteGroups = function () {
+			for (var ref of this.cachedFavoriteGroups.values()) {
+				if (ref.$isDeleted ||
+					ref.$isExpired === false) {
+					continue;
+				}
+				ref.$isDeleted = true;
+				this.$emit('FAVORITE:GROUP:@DELETE', {
+					ref,
+					params: {
+						favoriteGroupId: ref.id
 					}
 				});
 			}
 		};
 
-		API.markAllFavoriteGroupsAsExpired = function () {
-			for (var key in this.favoriteGroup) {
-				var ctx = this.favoriteGroup[key];
-				if (!ctx.hide_) {
-					ctx.expired_ = true;
-				}
-			}
-		};
-
-		API.checkExpiredFavoriteGroups = function () {
-			for (var key in this.favoriteGroup) {
-				var ctx = this.favoriteGroup[key];
-				if (ctx.expired_ &&
-					!ctx.hide_) {
-					ctx.hide_ = true;
-					this.$emit('FAVORITE:GROUP:@DELETE', {
-						param: {
-							favoriteGroupId: ctx.id
-						},
-						ref: ctx
-					});
-				}
-			}
-		};
-
-		API.resetFavoriteGroup = function () {
-			var i;
+		API.buildFavoriteGroups = function () {
 			// 96 = ['group_0', 'group_1', 'group_2'] x 32
 			this.favoriteFriendGroups = [];
-			for (i = 0; i < 3; ++i) {
+			for (var i = 0; i < 3; ++i) {
 				this.favoriteFriendGroups.push({
+					ref: null,
+					key: `friend:group_${i}`,
 					type: 'friend',
 					name: `group_${i}`,
 					displayName: `Group ${i + 1}`,
@@ -2325,8 +2333,10 @@ if (window.CefSharp) {
 			}
 			// 128 = ['worlds1', 'worlds2', 'worlds3', 'worlds4'] x 32
 			this.favoriteWorldGroups = [];
-			for (i = 0; i < 4; ++i) {
+			for (var i = 0; i < 4; ++i) {
 				this.favoriteWorldGroups.push({
+					ref: null,
+					key: `world:worlds${i + 1}`,
 					type: 'world',
 					name: `worlds${i + 1}`,
 					displayName: `Group ${i + 1}`,
@@ -2336,8 +2346,10 @@ if (window.CefSharp) {
 			}
 			// 16 = ['avatars1'] x 16
 			this.favoriteAvatarGroups = [];
-			for (i = 0; i < 1; ++i) {
+			for (var i = 0; i < 1; ++i) {
 				this.favoriteAvatarGroups.push({
+					ref: null,
+					key: `avatar:avatars${i + 1}`,
 					type: 'avatar',
 					name: `avatars${i + 1}`,
 					displayName: `Group ${i + 1}`,
@@ -2345,178 +2357,148 @@ if (window.CefSharp) {
 					count: 0
 				});
 			}
-		};
-
-		API.assignFavoriteGroup = function () {
-			var assign = [];
-			var set1 = function (array, ref) {
-				if (!assign[ref.id]) {
-					array.find((ctx) => {
-						if (ctx.name === ref.name &&
-							!ctx.assign_) {
-							ctx.assign_ = true;
-							ctx.displayName = ref.displayName;
-							assign[ref.id] = true;
-							return true;
-						}
-						return false;
-					});
+			// assign the same name first
+			for (var ref of this.cachedFavoriteGroups.values()) {
+				if (ref.$isDeleted) {
+					continue;
 				}
-			};
-			var set2 = function (array, ref) {
-				if (!assign[ref.id]) {
-					array.find((ctx) => {
-						if (!ctx.assign_) {
-							ctx.assign_ = true;
-							ctx.name = ref.name;
-							ctx.displayName = ref.displayName;
-							assign[ref.id] = true;
-							return true;
-						}
-						return false;
-					});
+				var groups = null;
+				if (ref.type === 'friend') {
+					groups = this.favoriteFriendGroups;
+				} else if (ref.type === 'world') {
+					groups = this.favoriteWorldGroups;
+				} else if (ref.type === 'avatar') {
+					groups = this.favoriteAvatarGroups;
+				} else {
+					continue;
 				}
-			};
-			var key;
-			var ctx;
-			for (key in this.favoriteGroup) {
-				ctx = this.favoriteGroup[key];
-				if (!ctx.hide_) {
-					if (ctx.type === 'friend') {
-						set1(this.favoriteFriendGroups, ctx);
-					} else if (ctx.type === 'world') {
-						set1(this.favoriteWorldGroups, ctx);
-					} else if (ctx.type === 'avatar') {
-						set1(this.favoriteAvatarGroups, ctx);
+				for (var group of groups) {
+					if (group.ref === null &&
+						group.name === ref.name) {
+						group.ref = ref;
+						group.displayName = ref.displayName;
+						ref.$groupRef = group;
+						break;
 					}
 				}
 			}
-			for (key in this.favoriteGroup) {
-				ctx = this.favoriteGroup[key];
-				if (!ctx.hide_) {
-					if (ctx.type === 'friend') {
-						set2(this.favoriteFriendGroups, ctx);
-					} else if (ctx.type === 'world') {
-						set2(this.favoriteWorldGroups, ctx);
-					} else if (ctx.type === 'avatar') {
-						set2(this.favoriteAvatarGroups, ctx);
+			// assign the rest
+			for (var ref of this.cachedFavoriteGroups.values()) {
+				if (ref.$isDeleted ||
+					ref.$ref) {
+					continue;
+				}
+				var groups = null;
+				if (ref.type === 'friend') {
+					groups = this.favoriteFriendGroups;
+				} else if (ref.type === 'world') {
+					groups = this.favoriteWorldGroups;
+				} else if (ref.type === 'avatar') {
+					groups = this.favoriteAvatarGroups;
+				} else {
+					continue;
+				}
+				for (var group of groups) {
+					if (group.ref === null) {
+						group.ref = ref;
+						group.key = `${group.type}:${group.name}`;
+						group.name = ref.name;
+						group.displayName = ref.displayName;
+						ref.$groupRef = group;
+						break;
 					}
 				}
 			}
-			for (key in this.favorite) {
-				ctx = this.favorite[key];
-				if (!ctx.hide_) {
-					if (ctx.type === 'friend') {
-						// eslint-disable-next-line no-loop-func
-						this.favoriteFriendGroups.find((ref) => {
-							if (ref.name === ctx.group_) {
-								++ref.count;
-								return true;
-							}
-							return false;
-						});
-					} else if (ctx.type === 'world') {
-						// eslint-disable-next-line no-loop-func
-						this.favoriteWorldGroups.find((ref) => {
-							if (ref.name === ctx.group_) {
-								++ref.count;
-								return true;
-							}
-							return false;
-						});
-					} else if (ctx.type === 'avatar') {
-						// eslint-disable-next-line no-loop-func
-						this.favoriteAvatarGroups.find((ref) => {
-							if (ref.name === ctx.group_) {
-								++ref.count;
-								return true;
-							}
-							return false;
-						});
-					}
+			// cache groups
+			var groupByTypeName = {};
+			for (var groups of [
+				this.favoriteFriendGroups,
+				this.favoriteWorldGroups,
+				this.favoriteAvatarGroups
+			]) {
+				for (var group of groups) {
+					groupByTypeName[group.key] = group;
+				}
+			}
+			for (var ref of this.cachedFavorites.values()) {
+				ref.$groupRef = null;
+				if (ref.$isDeleted) {
+					continue;
+				}
+				var group = groupByTypeName[ref.$groupKey];
+				if (group !== undefined) {
+					ref.$groupRef = group;
+					++group.count;
 				}
 			}
 		};
 
 		API.refreshFavoriteGroup = function () {
-			if (!this.isFavoriteGroupLoading) {
-				this.isFavoriteGroupLoading = true;
-				this.markAllFavoriteGroupsAsExpired();
-				this.bulk({
-					fn: 'getFavoriteGroups',
-					N: -1,
-					param: {
-						n: 100,
-						offset: 0
-					},
-					done: (ok) => {
-						if (ok) {
-							this.checkExpiredFavoriteGroups();
-							this.resetFavoriteGroup();
-							this.assignFavoriteGroup();
-						}
-						this.isFavoriteGroupLoading = false;
+			if (this.isFavoriteGroupLoading) {
+				return;
+			}
+			this.isFavoriteGroupLoading = true;
+			this.expireFavoriteGroups();
+			this.bulk({
+				fn: 'getFavoriteGroups',
+				N: -1,
+				params: {
+					n: 100,
+					offset: 0
+				},
+				done(ok) {
+					if (ok) {
+						this.deleteExpiredFavoriteGroups();
+						this.buildFavoriteGroups();
 					}
-				});
-			}
-		};
-
-		API.handleDeleteFavorite = function (objectId) {
-			for (var key in this.favorite) {
-				var ctx = this.favorite[key];
-				if (ctx.favoriteId === objectId &&
-					!ctx.hide_) {
-					ctx.hide_ = true;
-					API.$emit('FAVORITE:@DELETE', {
-						param: {
-							favoriteId: ctx.id
-						},
-						ref: ctx
-					});
+					this.isFavoriteGroupLoading = false;
 				}
-			}
+			});
 		};
 
-		API.updateFavorite = function (ref) {
-			var ctx = this.favorite[ref.id];
-			if (ctx) {
-				Object.assign(ctx, ref);
-			} else {
-				ctx = {
-					id: ref.id,
+		API.applyFavorite = function (json) {
+			var ref = this.cachedFavorites.get(json.id);
+			if (ref === undefined) {
+				ref = {
+					id: '',
 					type: '',
 					favoriteId: '',
 					tags: [],
-					// custom
-					group_: '',
+					// VRCX
+					$isDeleted: false,
+					$isExpired: false,
+					$groupKey: '',
+					$groupRef: null,
 					//
-					...ref
+					...json
 				};
-				this.favorite[ctx.id] = ctx;
+				this.cachedFavorites.set(ref.id, ref);
+			} else {
+				Object.assign(ref, json);
+				ref.$isExpired = false;
 			}
-			ctx.expired_ = false;
-			if (ctx.tags) {
-				[ctx.group_] = ctx.tags;
+			if (Array.isArray(ref.tags)) {
+				ref.$groupKey = `${ref.type}:${String(ref.tags[0])}`;
 			}
-			return ctx;
+			return ref;
 		};
 
 		/*
-			param: {
+			params: {
 				n: number,
 				offset: number,
 				type: string,
 				tag: string
 			}
 		*/
-		API.getFavorites = function (param) {
+		API.getFavorites = function (params) {
 			return this.call('favorites', {
 				method: 'GET',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('FAVORITE:LIST', args);
 				return args;
@@ -2524,20 +2506,20 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				type: string,
 				favoriteId: string (objectId),
 				tags: string
 			}
 		*/
-		API.addFavorite = function (param) {
+		API.addFavorite = function (params) {
 			return this.call('favorites', {
 				method: 'POST',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('FAVORITE:ADD', args);
 				return args;
@@ -2545,30 +2527,28 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				objectId: string
 			}
 		*/
-		API.deleteFavorite = function (param) {
-			return this.call(`favorites/${param.objectId}`, {
+		API.deleteFavorite = function (params) {
+			return this.call(`favorites/${params.objectId}`, {
 				method: 'DELETE'
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('FAVORITE:DELETE', args);
 				return args;
 			});
 		};
 
-		API.updateFavoriteGroup = function (ref) {
-			var ctx = this.favoriteGroup[ref.id];
-			if (ctx) {
-				Object.assign(ctx, ref);
-			} else {
-				ctx = {
-					id: ref.id,
+		API.applyFavoriteGroup = function (json) {
+			var ref = this.cachedFavoriteGroups.get(json.id);
+			if (ref === undefined) {
+				ref = {
+					id: '',
 					ownerId: '',
 					ownerDisplayName: '',
 					name: '',
@@ -2576,29 +2556,36 @@ if (window.CefSharp) {
 					type: '',
 					visibility: '',
 					tags: [],
-					...ref
+					// VRCX
+					$isDeleted: false,
+					$isExpired: false,
+					$groupRef: null,
+					//
+					...json
 				};
-				this.favoriteGroup[ctx.id] = ctx;
+				this.cachedFavoriteGroups.set(ref.id, ref);
+			} else {
+				Object.assign(ref, json);
+				ref.$isExpired = false;
 			}
-			ctx.expired_ = false;
-			return ctx;
+			return ref;
 		};
 
 		/*
-			param: {
+			params: {
 				n: number,
 				offset: number,
 				type: string
 			}
 		*/
-		API.getFavoriteGroups = function (param) {
+		API.getFavoriteGroups = function (params) {
 			return this.call('favorite/groups', {
 				method: 'GET',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('FAVORITE:GROUP:LIST', args);
 				return args;
@@ -2606,21 +2593,21 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				type: string,
 				group: string (name),
 				displayName: string,
 				visibility: string
 			}
 		*/
-		API.saveFavoriteGroup = function (param) {
-			return this.call(`favorite/group/${param.type}/${param.group}/${this.currentUser.id}`, {
+		API.saveFavoriteGroup = function (params) {
+			return this.call(`favorite/group/${params.type}/${params.group}/${this.currentUser.id}`, {
 				method: 'PUT',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('FAVORITE:GROUP:SAVE', args);
 				return args;
@@ -2628,55 +2615,39 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				type: string,
 				group: string (name)
 			}
 		*/
-		API.clearFavoriteGroup = function (param) {
-			return this.call(`favorite/group/${param.type}/${param.group}/${this.currentUser.id}`, {
+		API.clearFavoriteGroup = function (params) {
+			return this.call(`favorite/group/${params.type}/${params.group}/${this.currentUser.id}`, {
 				method: 'DELETE',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('FAVORITE:GROUP:CLEAR', args);
 				return args;
 			});
 		};
 
-		API.handleClearFavoriteGroup = function (name) {
-			for (var key in this.favorite) {
-				var ctx = this.favorite[key];
-				if (ctx.group_ === name &&
-					!ctx.hide_) {
-					ctx.hide_ = true;
-					API.$emit('FAVORITE:@DELETE', {
-						param: {
-							favoriteId: ctx.id
-						},
-						ref: ctx
-					});
-				}
-			}
-		};
-
 		/*
-			param: {
+			params: {
 				n: number,
 				offset: number
 			}
 		*/
-		API.getFavoriteFriends = function (param) {
+		API.getFavoriteFriends = function (params) {
 			return this.call('auth/user/friends/favorite', {
 				method: 'GET',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('FAVORITE:FRIEND:LIST', args);
 				return args;
@@ -2684,19 +2655,19 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				n: number,
 				offset: number
 			}
 		*/
-		API.getFavoriteWorlds = function (param) {
+		API.getFavoriteWorlds = function (params) {
 			return this.call('worlds/favorites', {
 				method: 'GET',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('FAVORITE:WORLD:LIST', args);
 				return args;
@@ -2704,547 +2675,195 @@ if (window.CefSharp) {
 		};
 
 		/*
-			param: {
+			params: {
 				n: number,
 				offset: number
 			}
 		*/
-		API.getFavoriteAvatars = function (param) {
+		API.getFavoriteAvatars = function (params) {
 			return this.call('avatars/favorites', {
 				method: 'GET',
-				body: param
+				params
 			}).then((json) => {
 				var args = {
-					param,
-					json
+					json,
+					params
 				};
 				this.$emit('FAVORITE:AVATAR:LIST', args);
 				return args;
 			});
 		};
 
-		// API: Feedback
-
-		API.feedback = {};
-		API.isFeedbackLoading = false;
-
-		API.$on('LOGIN', () => {
-			API.feedback = {};
-			API.isFeedbackLoading = false;
-		});
-
-		API.$on('FEEDBACK', (args) => {
-			args.ref = API.updateFeedback(args.json);
-		});
-
-		API.$on('FEEDBACK:LIST', (args) => {
-			args.json.forEach((json) => {
-				API.$emit('FEEDBACK', {
-					param: {
-						feedbackId: json.id
-					},
-					json
-				});
-			});
-		});
-
-		API.$on('FEEDBACK:DELETE', (args) => {
-			var ctx = API.feedback[args.param.feedbackId];
-			if (ctx &&
-				!ctx.hide_) {
-				ctx.hide_ = true;
-				args.ref = ctx;
-				API.$emit('FEEDBACK:@DELETE', {
-					param: {
-						feedbackId: ctx.id
-					},
-					ref: ctx
-				});
-			}
-		});
-
-		API.markAllFeedbacksAsExpired = function () {
-			for (var key in this.feedback) {
-				var ctx = this.feedback[key];
-				if (!ctx.hide_) {
-					ctx.expired_ = true;
-				}
-			}
-		};
-
-		API.checkExpiredFeedbacks = function () {
-			for (var key in this.feedback) {
-				var ctx = this.feedback[key];
-				if (ctx.expired_ &&
-					!ctx.hide_) {
-					ctx.hide_ = true;
-					this.$emit('FEEDBACK:@DELETE', {
-						param: {
-							feedbackId: ctx.id
-						},
-						ref: ctx
-					});
-				}
-			}
-		};
-
-		API.refreshFeedback = function () {
-			if (!this.isFeedbackLoading) {
-				this.isFeedbackLoading = true;
-				this.markAllFeedbacksAsExpired();
-				this.bulk({
-					fn: 'getFeedbacks',
-					N: -1,
-					param: {
-						n: 100,
-						offset: 0
-					},
-					done: (ok) => {
-						if (ok) {
-							this.checkExpiredFeedbacks();
-						}
-						this.isFeedbackLoading = false;
-					}
-				});
-			}
-		};
-
-		API.updateFeedback = function (ref) {
-			var ctx = this.feedback[ref.id];
-			if (ctx) {
-				Object.assign(ctx, ref);
-			} else {
-				ctx = {
-					id: ref.id,
-					type: '',
-					reason: '',
-					commenterId: '',
-					commenterName: '',
-					contentId: '',
-					contentType: '',
-					contentVersion: '',
-					contentName: '',
-					contentAuthorId: '',
-					contentAuthorName: '',
-					tags: [],
-					...ref
-				};
-				this.feedback[ctx.id] = ctx;
-			}
-			ctx.expired_ = false;
-			return ctx;
-		};
-
-		/*
-			param: {
-				n: number,
-				offset: number
-			}
-		*/
-		API.getFeedbacks = function (param) {
-			return this.call(`users/${this.currentUser.id}/feedback`, {
-				method: 'GET',
-				body: param
-			}).then((json) => {
-				var args = {
-					param,
-					json
-				};
-				this.$emit('FEEDBACK:LIST', args);
-				return args;
-			});
-		};
-
-		/*
-			param: {
-				feedbackId: string
-			}
-		*/
-		API.deleteFeedback = function (param) {
-			return this.call(`feedback/${param.feedbackId}`, {
-				method: 'DELETE',
-				body: param
-			}).then((json) => {
-				var args = {
-					param,
-					json
-				};
-				this.$emit('FEEDBACK:DELETE', args);
-				return args;
-			});
-		};
-
-		// API: Thing
-
-		API.thing = {};
-		API.isThingLoading = false;
-
-		API.$on('LOGIN', () => {
-			API.thing = {};
-			API.isThingLoading = false;
-		});
-
-		API.$on('THING', (args) => {
-			args.ref = API.updateThing(args.json);
-		});
-
-		API.$on('THING:LIST', (args) => {
-			args.json.forEach((json) => {
-				API.$emit('THING', {
-					param: {
-						thingId: json.id
-					},
-					json
-				});
-			});
-		});
-
-		API.$on('THING:ADD', (args) => {
-			API.$emit('THING', {
-				param: {
-					thingId: args.json.id
-				},
-				json: args.json
-			});
-		});
-
-		API.$on('THING:SAVE', (args) => {
-			API.$emit('THING', {
-				param: {
-					thingId: args.json.id
-				},
-				json: args.json
-			});
-		});
-
-		API.$on('THING:DELETE', (args) => {
-			var ctx = API.thing[args.param.thingId];
-			if (ctx &&
-				!ctx.hide_) {
-				ctx.hide_ = true;
-				args.ref = ctx;
-				API.$emit('THING:@DELETE', {
-					param: {
-						thingId: ctx.id
-					},
-					ref: ctx
-				});
-			}
-		});
-
-		API.markAllThingsAsExpired = function () {
-			for (var key in this.thing) {
-				var ctx = this.thing[key];
-				if (!ctx.hide_) {
-					ctx.expired_ = true;
-				}
-			}
-		};
-
-		API.checkExpiredThings = function () {
-			for (var key in this.thing) {
-				var ctx = this.thing[key];
-				if (ctx.expired_ &&
-					!ctx.hide_) {
-					ctx.hide_ = true;
-					this.$emit('THING:@DELETE', {
-						param: {
-							thingId: ctx.id
-						},
-						ref: ctx
-					});
-				}
-			}
-		};
-
-		API.refreshThing = function () {
-			if (!this.isThingLoading) {
-				this.isThingLoading = true;
-				this.markAllThingsAsExpired();
-				this.bulk({
-					fn: 'getThings',
-					N: -1,
-					param: {
-						n: 100,
-						offset: 0
-					},
-					done: (ok) => {
-						if (ok) {
-							this.checkExpiredThings();
-						}
-						this.isThingLoading = false;
-					}
-				});
-			}
-		};
-
-		API.updateThing = function (ref) {
-			var ctx = this.thing[ref.id];
-			if (ctx) {
-				Object.assign(ctx, ref);
-			} else {
-				ctx = {
-					id: ref.id,
-					ownerId: '',
-					ownerDisplayName: '',
-					thingProperty: '',
-					otherThingProperty: '',
-					tags: [],
-					...ref
-				};
-				this.thing[ctx.id] = ctx;
-			}
-			ctx.expired_ = false;
-		};
-
-		/*
-			param: {
-				n: number,
-				offset: number
-			}
-		*/
-		API.getThings = function (param) {
-			return this.call('things', {
-				method: 'GET',
-				body: param
-			}).then((json) => {
-				var args = {
-					param,
-					json
-				};
-				this.$emit('THING:LIST', args);
-				return args;
-			});
-		};
-
-		/*
-			param: {
-				thingId: string,
-				thingProperty: string,
-				tags: string
-			}
-		*/
-		API.addThing = function (param) {
-			return this.call('things', {
-				method: 'POST',
-				body: param
-			}).then((json) => {
-				var args = {
-					param,
-					json
-				};
-				this.$emit('THING:ADD', args);
-				return args;
-			});
-		};
-
-		/*
-			param: {
-				thingId: string,
-				thingProperty: string,
-				tags: string
-			}
-		*/
-		API.saveThing = function (param) {
-			return this.call(`things/${param.thingId}`, {
-				method: 'PUT',
-				body: param
-			}).then((json) => {
-				var args = {
-					param,
-					json
-				};
-				this.$emit('THING:SAVE', args);
-				return args;
-			});
-		};
-
-		/*
-			param: {
-				thingId: string
-			}
-		*/
-		API.deleteThing = function (param) {
-			return this.call(`things/${param.thingId}`, {
-				method: 'DELETE',
-				body: param
-			}).then((json) => {
-				var args = {
-					param,
-					json
-				};
-				this.$emit('THING:DELETE', args);
-				return args;
-			});
-		};
-
 		// API: WebSocket
 
-		API.webSocket = false;
+		API.webSocket = null;
 
-		API.$on('LOGOUT', () => {
-			API.closeWebSocket();
+		API.$on('LOGOUT', function () {
+			this.closeWebSocket();
 		});
 
-		API.$on('USER:CURRENT', () => {
-			if (API.webSocket === false) {
-				API.getAuth();
+		API.$on('USER:CURRENT', function () {
+			if (this.webSocket === null) {
+				this.getAuth();
 			}
 		});
 
-		API.$on('AUTH', (args) => {
+		API.$on('AUTH', function (args) {
 			if (args.json.ok) {
-				API.connectWebSocket(args.json.token);
+				this.connectWebSocket(args.json.token);
 			}
 		});
 
-		API.$on('PIPELINE', (args) => {
+		API.$on('PIPELINE', function (args) {
 			var { type, content } = args.json;
 			switch (type) {
 				case 'notification':
-					API.$emit('NOTIFICATION', {
-						param: {
+					this.$emit('NOTIFICATION', {
+						json: content,
+						params: {
 							notificationId: content.id
-						},
-						json: content
+						}
 					});
 					break;
 
 				case 'friend-add':
-					API.$emit('USER', {
-						param: {
+					this.$emit('USER', {
+						json: content.user,
+						params: {
 							userId: content.userId
-						},
-						json: content.user
+						}
 					});
-					API.$emit('FRIEND:ADD', {
-						param: {
+					this.$emit('FRIEND:ADD', {
+						params: {
 							userId: content.userId
 						}
 					});
 					break;
 
 				case 'friend-delete':
-					API.$emit('FRIEND:DELETE', {
-						param: {
+					this.$emit('FRIEND:DELETE', {
+						params: {
 							userId: content.userId
 						}
 					});
 					break;
 
 				case 'friend-online':
-					API.$emit('USER', {
-						param: {
-							userId: content.userId
-						},
+					this.$emit('USER', {
 						json: {
 							location: content.location,
 							...content.user
+						},
+						params: {
+							userId: content.userId
 						}
 					});
-					API.$emit('FRIEND:STATE', {
-						param: {
-							userId: content.userId
-						},
+					this.$emit('FRIEND:STATE', {
 						json: {
 							state: 'online'
+						},
+						params: {
+							userId: content.userId
 						}
 					});
 					break;
 
 				case 'friend-active':
-					API.$emit('USER', {
-						param: {
+					this.$emit('USER', {
+						json: content.user,
+						params: {
 							userId: content.userId
-						},
-						json: content.user
+						}
 					});
-					API.$emit('FRIEND:STATE', {
-						param: {
-							userId: content.userId
-						},
+					this.$emit('FRIEND:STATE', {
 						json: {
 							state: 'active'
+						},
+						params: {
+							userId: content.userId
 						}
 					});
 					break;
 
 				case 'friend-offline':
-					API.$emit('FRIEND:STATE', {
-						param: {
-							userId: content.userId
-						},
+					this.$emit('FRIEND:STATE', {
 						json: {
 							state: 'offline'
+						},
+						params: {
+							userId: content.userId
 						}
 					});
 					break;
 
 				case 'friend-update':
-					API.$emit('USER', {
-						param: {
+					this.$emit('USER', {
+						json: content.user,
+						params: {
 							userId: content.userId
-						},
-						json: content.user
+						}
 					});
 					break;
 
 				case 'friend-location':
 					if (content.world) {
-						API.$emit('WORLD', {
-							param: {
+						this.$emit('WORLD', {
+							json: content.world,
+							params: {
 								worldId: content.world.id
-							},
-							json: content.world
+							}
 						});
 					}
-					if (content.userId === API.currentUser.id) {
-						API.$emit('USER', {
-							param: {
+					if (content.userId === this.currentUser.id) {
+						this.$emit('USER', {
+							json: content.user,
+							params: {
 								userId: content.userId
-							},
-							json: content.user
+							}
 						});
 					} else {
-						API.$emit('USER', {
-							param: {
-								userId: content.userId
-							},
+						this.$emit('USER', {
 							json: {
 								location: content.location,
 								...content.user
+							},
+							params: {
+								userId: content.userId
 							}
 						});
 					}
 					break;
 
 				case 'user-update':
-					API.$emit('USER:CURRENT', {
-						param: {
+					this.$emit('USER:CURRENT', {
+						json: content.user,
+						params: {
 							userId: content.userId
-						},
-						json: content.user
+						}
 					});
 					break;
 
 				case 'user-location':
-					if (content.world) {
-						API.$emit('WORLD', {
-							param: {
+					if (isObject(content.world)) {
+						this.$emit('WORLD', {
+							json: content.world,
+							params: {
 								worldId: content.world.id
-							},
-							json: content.world
+							}
 						});
 					}
-					API.$emit('USER', {
-						param: {
-							userId: content.userId
-						},
+					this.$emit('USER', {
 						json: {
 							id: content.userId,
 							location: content.location
+						},
+						params: {
+							userId: content.userId
 						}
 					});
+					break;
+
+				default:
 					break;
 			}
 		});
@@ -3262,22 +2881,21 @@ if (window.CefSharp) {
 		};
 
 		API.connectWebSocket = function (token) {
-			if (this.webSocket === false) {
+			if (this.webSocket === null) {
 				var socket = new WebSocket(`wss://pipeline.vrchat.cloud/?auth=${token}`);
 				socket.onclose = () => {
 					if (this.webSocket === socket) {
-						this.webSocket = false;
+						this.webSocket = null;
 					}
 					try {
 						socket.close();
 					} catch (err) {
-						console.error(err);
 					}
 				};
 				socket.onerror = socket.onclose;
-				socket.onmessage = (e) => {
+				socket.onmessage = ({ data }) => {
 					try {
-						var json = JSON.parse(e.data);
+						var json = JSON.parse(data);
 						if (json.content) {
 							json.content = JSON.parse(json.content);
 						}
@@ -3293,13 +2911,12 @@ if (window.CefSharp) {
 		};
 
 		API.closeWebSocket = function () {
-			if (this.webSocket !== false) {
+			if (this.webSocket !== null) {
 				var socket = this.webSocket;
-				this.webSocket = false;
+				this.webSocket = null;
 				try {
 					socket.close();
 				} catch (err) {
-					console.error(err);
 				}
 			}
 		};
@@ -3318,60 +2935,6 @@ if (window.CefSharp) {
 			});
 		};
 
-		// API: Time
-
-		API.getServerTime = function () {
-			return this.call('time', {
-				method: 'GET'
-			}).then((json) => {
-				var args = {
-					json
-				};
-				this.$emit('TIME', args);
-				return args;
-			});
-		};
-
-		// API: Youtube
-
-		/*
-			param = {
-				q: string,
-				type: string ('video'),
-				safeSearch: string ('strict'),
-				maxResults: number (25),
-				part: string ('snippet')
-			}
-		*/
-		API.youtube = function (param) {
-			return this.call('youtube', {
-				method: 'GET',
-				body: param
-			}).then((json) => {
-				var args = {
-					param,
-					json
-				};
-				this.$emit('YOUTUBE', args);
-				return args;
-			});
-		};
-
-		// API: Events
-
-		// deprecated: moved to user's property
-		API.getEvents = function () {
-			return this.call('events', {
-				method: 'GET'
-			}).then((json) => {
-				var args = {
-					json
-				};
-				this.$emit('EVENTS', args);
-				return args;
-			});
-		};
-
 		// API
 
 		var extractFileId = (s) => {
@@ -3385,29 +2948,27 @@ if (window.CefSharp) {
 			var node = [];
 			for (var key in json) {
 				var value = json[key];
-				if (typeof value === 'object') {
-					if (Array.isArray(value)) {
-						node.push({
-							children: value.map((val, idx) => {
-								if (typeof val === 'object') {
-									return {
-										children: buildTreeData(val),
-										key: idx
-									};
-								}
+				if (Array.isArray(value)) {
+					node.push({
+						children: value.map((val, idx) => {
+							if (isObject(val)) {
 								return {
-									key: idx,
-									value: val
+									children: buildTreeData(val),
+									key: idx
 								};
-							}),
-							key
-						});
-					} else {
-						node.push({
-							children: buildTreeData(value),
-							key
-						});
-					}
+							}
+							return {
+								key: idx,
+								value: val
+							};
+						}),
+						key
+					});
+				} else if (isObject(value)) {
+					node.push({
+						children: buildTreeData(value),
+						key
+					});
 				} else {
 					node.push({
 						key,
@@ -3467,8 +3028,10 @@ if (window.CefSharp) {
 			}
 		});
 
-		setInterval(() => {
-			$timers.forEach((v) => v.update());
+		setInterval(function () {
+			for (var $timer of $timers) {
+				$timer.update();
+			}
 		}, 5000);
 
 		var $app = {
@@ -3491,7 +3054,7 @@ if (window.CefSharp) {
 					API.$on('SHOW_LAUNCH_DIALOG', (tag) => this.showLaunchDialog(tag));
 					setInterval(() => this.update(), 1000);
 					this.update();
-					this.$nextTick(() => {
+					this.$nextTick(function () {
 						this.$el.style.display = '';
 						this.loginForm.loading = true;
 						API.getConfig().catch((err) => {
@@ -3512,7 +3075,8 @@ if (window.CefSharp) {
 		$app.methods.checkAppVersion = function () {
 			var url = 'https://api.github.com/repos/pypy-vrc/VRCX/releases/latest';
 			fetch(url).then((res) => res.json()).then((json) => {
-				if (json.name &&
+				if (isObject(json) &&
+					json.name &&
 					json.published_at) {
 					this.latestAppVersion = `${json.name} (${formatDate(json.published_at, 'YYYY-MM-DD HH24:MI:SS')})`;
 					if (json.name > this.appVersion) {
@@ -3533,102 +3097,98 @@ if (window.CefSharp) {
 		};
 
 		var insertOrUpdateArrayById = (array, json) => {
-			var insertOrUpdate = array.some((val, idx, arr) => {
-				if (val.id === json.id) {
-					$app.$set(arr, idx, json);
-					return true;
+			var { id } = json;
+			var { length } = array;
+			for (var i = 0; i < length; ++i) {
+				if (array[i].id === id) {
+					Vue.set(array, i, json);
+					return;
 				}
-				return false;
-			});
-			if (!insertOrUpdate) {
-				array.push(json);
 			}
+			array.push(json);
 		};
 
 		$app.methods.update = function () {
-			if (API.isLoggedIn) {
-				if (--this.nextRefresh <= 0) {
-					this.nextRefresh = 60;
-					API.getCurrentUser().catch((err1) => {
-						if (err1.status_code === 401) {
-							API.getConfig().then((args) => {
-								API.login({
-									username: this.loginForm.username,
-									password: this.loginForm.password
-								}).catch((err2) => {
-									if (err2.status_code === 401) {
-										API.logout();
-									}
-									throw err2;
-								});
-								return args;
+			if (API.isLoggedIn === false) {
+				return;
+			}
+			if (--this.nextRefresh <= 0) {
+				this.nextRefresh = 60;
+				API.getCurrentUser().catch((err1) => {
+					if (err1.status_code === 401) {
+						API.getConfig().then((args) => {
+							API.login({
+								username: this.loginForm.username,
+								password: this.loginForm.password
+							}).catch((err2) => {
+								if (err2.status_code === 401) {
+									API.logout();
+								}
+								throw err2;
 							});
-						}
-						throw err1;
-					});
-				}
-				this.refreshGameLog();
-				VRCX.IsGameRunning().then((running) => {
-					if (this.isGameRunning !== running) {
-						this.isGameRunning = running;
-						Discord.SetTimestamps(Date.now(), 0);
+							return args;
+						});
 					}
-					this.updateDiscord();
-					this.updateOpenVR();
+					throw err1;
 				});
 			}
+			this.refreshGameLog();
+			VRCX.IsGameRunning().then((running) => {
+				if (running !== this.isGameRunning) {
+					this.isGameRunning = running;
+					Discord.SetTimestamps(Date.now(), 0);
+				}
+				this.updateDiscord();
+				this.updateOpenVR();
+			});
 		};
 
 		$app.methods.updateSharedFeed = function () {
 			var arr = [];
-			var ref;
-			var i;
-			var j;
 			// FIXME
 			// 여러 개 켠다면 gameLogTable의 데이터가 시간순이 아닐 수도 있음
-			i = this.gameLogTable.data.length;
-			j = 0;
+			var i = this.gameLogTable.data.length;
+			var j = 0;
 			while (j < 25) {
 				if (i <= 0) {
 					break;
 				}
-				ref = this.gameLogTable.data[--i];
+				var ctx = this.gameLogTable.data[--i];
 				// Location, OnPlayerJoined, OnPlayerLeft
-				if (ref.type) {
+				if (ctx.type) {
 					// FIXME: 이거 존나 느릴거 같은데
 					var isFriend = false;
 					var isFavorite = false;
-					for (var key in API.user) {
-						var ctx = API.user[key];
-						if (ctx.displayName === ref.data) {
-							isFriend = Boolean(this.friend[ctx.id]);
-							isFavorite = Boolean(API.favoriteObject[ctx.id]);
+					for (var ref of API.cachedUsers.values()) {
+						if (ref.displayName === ctx.data) {
+							isFriend = this.friends.has(ref.id);
+							isFavorite = API.cachedFavoritesByObjectId.has(ref.id);
 							break;
 						}
 					}
 					arr.push({
-						...ref,
+						...ctx,
 						isFriend,
 						isFavorite
 					});
 				} else {
-					arr.push(ref);
+					arr.push(ctx);
 				}
 				++j;
 			}
-			i = this.feedTable.data.length;
-			j = 0;
+			var i = this.feedTable.data.length;
+			var j = 0;
 			while (j < 25) {
 				if (i <= 0) {
 					break;
 				}
-				ref = this.feedTable.data[--i];
+				var ctx = this.feedTable.data[--i];
 				// GPS, Online, Offline, Status, Avatar
-				if (ref.type !== 'Avatar') {
+				if (ctx.type !== 'Avatar') {
 					arr.push({
-						...ref,
-						isFriend: Boolean(this.friend[ref.userId]),
-						isFavorite: Boolean(API.favoriteObject[ref.userId])
+						...ctx,
+						isFriend: this.friends.has(ctx.userId),
+						isFavorite: API.cachedFavoritesByObjectId.has(ctx.userId)
 					});
 					++j;
 				}
@@ -3649,8 +3209,9 @@ if (window.CefSharp) {
 		};
 
 		$app.methods.notifyMenu = function (index) {
-			if (this.$refs.menu.activeIndex !== index) {
-				var item = this.$refs.menu.items[index];
+			var { menu } = this.$refs;
+			if (menu.activeIndex !== index) {
+				var item = menu.items[index];
 				if (item) {
 					item.$el.classList.add('notify');
 				}
@@ -3726,23 +3287,23 @@ if (window.CefSharp) {
 			});
 		};
 
-		API.$on('USER:2FA', () => {
+		API.$on('USER:2FA', function () {
 			$app.promptTOTP();
 		});
 
-		API.$on('LOGOUT', () => {
+		API.$on('LOGOUT', function () {
 			new Noty({
 				type: 'success',
-				text: `See you again, <strong>${escapeTag(API.currentUser.displayName)}</strong>!`
+				text: `See you again, <strong>${escapeTag(this.currentUser.displayName)}</strong>!`
 			}).show();
 		});
 
-		API.$on('LOGIN', (args) => {
-			$app.$refs.menu.activeIndex = 'feed';
+		API.$on('LOGIN', function (args) {
 			new Noty({
 				type: 'success',
 				text: `Hello there, <strong>${escapeTag(args.ref.displayName)}</strong>!`
 			}).show();
+			$app.$refs.menu.activeIndex = 'feed';
 		});
 
 		$app.data.loginForm = {
@@ -3817,7 +3378,8 @@ if (window.CefSharp) {
 		};
 
 		$app.methods.loadMemo = function (id) {
-			return VRCXStorage.Get(`memo_${id}`);
+			var key = `memo_${id}`;
+			return VRCXStorage.Get(key);
 		};
 
 		$app.methods.saveMemo = function (id, memo) {
@@ -3827,7 +3389,7 @@ if (window.CefSharp) {
 			} else {
 				VRCXStorage.Remove(key);
 			}
-			var ref = this.friend[id];
+			var ref = this.friends.get(id);
 			if (ref) {
 				ref.memo = String(memo || '');
 			}
@@ -3835,8 +3397,8 @@ if (window.CefSharp) {
 
 		// App: Friends
 
-		$app.data.friend = {};
-		$app.data.friendNo = 0;
+		$app.data.friends = new Map();
+		$app.data.friendsNo = 0;
 		$app.data.isFriendGroup0 = true;
 		$app.data.isFriendGroup1 = true;
 		$app.data.isFriendGroup2 = true;
@@ -3868,9 +3430,9 @@ if (window.CefSharp) {
 		$app.watch.orderFriendGroup2 = saveOrderFriendGroup;
 		$app.watch.orderFriendGroup3 = saveOrderFriendGroup;
 
-		API.$on('LOGIN', () => {
-			$app.friend = {};
-			$app.friendNo = 0;
+		API.$on('LOGIN', function () {
+			$app.friends.clear();
+			$app.friendsNo = 0;
 			$app.isFriendGroup0 = true;
 			$app.isFriendGroup1 = true;
 			$app.isFriendGroup2 = true;
@@ -3889,33 +3451,33 @@ if (window.CefSharp) {
 			$app.sortFriendGroup3 = false;
 		});
 
-		API.$on('USER:CURRENT', (args) => {
+		API.$on('USER:CURRENT', function (args) {
 			// initFriendship()이 LOGIN에서 처리되기 때문에
 			// USER:CURRENT에서 처리를 함
 			$app.refreshFriend(args.ref, args.origin);
 		});
 
-		API.$on('USER', (args) => {
+		API.$on('USER', function (args) {
 			$app.updateFriend(args.ref.id);
 		});
 
-		API.$on('FRIEND:ADD', (args) => {
-			$app.addFriend(args.param.userId);
+		API.$on('FRIEND:ADD', function (args) {
+			$app.addFriend(args.params.userId);
 		});
 
-		API.$on('FRIEND:DELETE', (args) => {
-			$app.removeFriend(args.param.userId);
+		API.$on('FRIEND:DELETE', function (args) {
+			$app.removeFriend(args.params.userId);
 		});
 
-		API.$on('FRIEND:STATE', (args) => {
-			$app.updateFriend(args.param.userId, args.json.state);
+		API.$on('FRIEND:STATE', function (args) {
+			$app.updateFriend(args.params.userId, args.json.state);
 		});
 
-		API.$on('FAVORITE', (args) => {
+		API.$on('FAVORITE', function (args) {
 			$app.updateFriend(args.ref.favoriteId);
 		});
 
-		API.$on('FAVORITE:@DELETE', (args) => {
+		API.$on('FAVORITE:@DELETE', function (args) {
 			$app.updateFriend(args.ref.favoriteId);
 		});
 
@@ -3933,17 +3495,16 @@ if (window.CefSharp) {
 			ref.onlineFriends.forEach((id) => {
 				map[id] = 'online';
 			});
-			var key;
-			for (key in map) {
-				if (this.friend[key]) {
-					this.updateFriend(key, map[key], origin);
+			for (var id in map) {
+				if (this.friends.has(id)) {
+					this.updateFriend(id, map[id], origin);
 				} else {
-					this.addFriend(key, map[key]);
+					this.addFriend(id, map[id]);
 				}
 			}
-			for (key in this.friend) {
-				if (!map[key]) {
-					this.removeFriend(key);
+			for (var id of this.friends.keys()) {
+				if (map[id] === undefined) {
+					this.removeFriend(id);
 				}
 			}
 			if (origin) {
@@ -3952,53 +3513,54 @@ if (window.CefSharp) {
 		};
 
 		$app.methods.addFriend = function (id, state) {
-			if (!this.friend[id]) {
-				var ref = API.user[id];
-				var ctx = {
-					id,
-					state: state || 'offline',
-					ref,
-					vip: Boolean(API.favoriteObject[id]),
-					name: '',
-					no: ++this.friendNo,
-					memo: this.loadMemo(id)
-				};
-				if (ref) {
-					ctx.name = ref.name;
-				} else {
-					ref = this.friendLog[id];
-					if (ref &&
-						ref.displayName) {
-						ctx.name = ref.displayName;
-					}
+			if (this.friends.has(id)) {
+				return;
+			}
+			var ref = API.cachedUsers.get(id);
+			var ctx = {
+				id,
+				state: state || 'offline',
+				ref,
+				vip: API.cachedFavoritesByObjectId.has(id),
+				name: '',
+				no: ++this.friendsNo,
+				memo: this.loadMemo(id)
+			};
+			if (ref) {
+				ctx.name = ref.name;
+			} else {
+				ref = this.friendLog[id];
+				if (ref &&
+					ref.displayName) {
+					ctx.name = ref.displayName;
 				}
-				this.$set(this.friend, id, ctx);
-				if (ctx.state === 'online') {
-					if (ctx.vip) {
-						this.sortFriendGroup0 = true;
-						this.friendGroup0_.push(ctx);
-						this.friendGroupA_.unshift(ctx);
-					} else {
-						this.sortFriendGroup1 = true;
-						this.friendGroup1_.push(ctx);
-						this.friendGroupB_.unshift(ctx);
-					}
-				} else if (ctx.state === 'active') {
-					this.sortFriendGroup2 = true;
-					this.friendGroup2_.push(ctx);
-					this.friendGroupC_.unshift(ctx);
+			}
+			this.friends.set(id, ctx);
+			if (ctx.state === 'online') {
+				if (ctx.vip) {
+					this.sortFriendGroup0 = true;
+					this.friendGroup0_.push(ctx);
+					this.friendGroupA_.unshift(ctx);
 				} else {
-					this.sortFriendGroup3 = true;
-					this.friendGroup3_.push(ctx);
-					this.friendGroupD_.unshift(ctx);
+					this.sortFriendGroup1 = true;
+					this.friendGroup1_.push(ctx);
+					this.friendGroupB_.unshift(ctx);
 				}
+			} else if (ctx.state === 'active') {
+				this.sortFriendGroup2 = true;
+				this.friendGroup2_.push(ctx);
+				this.friendGroupC_.unshift(ctx);
+			} else {
+				this.sortFriendGroup3 = true;
+				this.friendGroup3_.push(ctx);
+				this.friendGroupD_.unshift(ctx);
 			}
 		};
 
 		$app.methods.removeFriend = function (id) {
-			var ctx = this.friend[id];
+			var ctx = this.friends.get(id);
 			if (ctx) {
-				this.$delete(this.friend, id);
+				Vue.delete(this.friend, id);
 				if (ctx.state === 'online') {
 					if (ctx.vip) {
 						removeFromArray(this.friendGroup0_, ctx);
@@ -4018,10 +3580,10 @@ if (window.CefSharp) {
 		};
 
 		$app.methods.updateFriend = function (id, state, origin) {
-			var ctx = this.friend[id];
+			var ctx = this.friends.get(id);
 			if (ctx) {
-				var ref = API.user[id];
-				var vip = Boolean(API.favoriteObject[id]);
+				var ref = API.cachedUsers.get(id);
+				var vip = API.cachedFavoritesByObjectId.has(id);
 				if (state === undefined ||
 					ctx.state === state) {
 					if (ctx.ref !== ref) {
@@ -4235,8 +3797,7 @@ if (window.CefSharp) {
 			this.quickSearchItems = [];
 			if (query) {
 				var QUERY = query.toUpperCase();
-				for (var key in this.friend) {
-					var ctx = this.friend[key];
+				for (var ctx in this.friends.values()) {
 					if (ctx.ref) {
 						var NAME = ctx.name.toUpperCase();
 						var match = NAME.includes(QUERY);
@@ -4324,7 +3885,8 @@ if (window.CefSharp) {
 				{
 					prop: 'userId',
 					value: false,
-					filterFn: (row, filter) => !filter.value || Boolean(API.favoriteObject[row.userId])
+					filterFn: (row, filter) => !filter.value ||
+						API.cachedFavoritesByObjectId.has(row.userId)
 				}
 			],
 			tableProps: {
@@ -4348,57 +3910,57 @@ if (window.CefSharp) {
 			}
 		};
 
-		API.$on('LOGIN', (args) => {
+		API.$on('LOGIN', function (args) {
 			$app.feedTable.data = VRCXStorage.GetArray(`${args.ref.id}_feedTable`);
 			$app.sweepFeed();
 		});
 
-		API.$on('USER:UPDATE', (args) => {
-			var { ref, prop } = args;
-			if ($app.friend[ref.id]) {
-				if (prop.location) {
-					if (prop.location[0] === 'offline') {
+		API.$on('USER:UPDATE', function (args) {
+			var { ref, props } = args;
+			if ($app.friends.get(ref.id)) {
+				if (props.location) {
+					if (props.location[0] === 'offline') {
 						$app.addFeed('Offline', ref, {
-							location: prop.location[1],
-							time: prop.location[2]
+							location: props.location[1],
+							time: props.location[2]
 						});
-					} else if (prop.location[1] === 'offline') {
+					} else if (props.location[1] === 'offline') {
 						$app.addFeed('Online', ref, {
-							location: prop.location[0]
+							location: props.location[0]
 						});
 					} else {
 						$app.addFeed('GPS', ref, {
 							location: [
-								prop.location[0],
-								prop.location[1]
+								props.location[0],
+								props.location[1]
 							],
-							time: prop.location[2]
+							time: props.location[2]
 						});
 					}
 				}
-				if (prop.currentAvatarThumbnailImageUrl) {
+				if (props.currentAvatarThumbnailImageUrl) {
 					$app.addFeed('Avatar', ref, {
-						avatar: prop.currentAvatarThumbnailImageUrl
+						avatar: props.currentAvatarThumbnailImageUrl
 					});
 				}
-				if (prop.status ||
-					prop.statusDescription) {
+				if (props.status ||
+					props.statusDescription) {
 					$app.addFeed('Status', ref, {
 						status: [
 							{
-								status: prop.status
-									? prop.status[0]
+								status: props.status
+									? props.status[0]
 									: ref.status,
-								statusDescription: prop.statusDescription
-									? prop.statusDescription[0]
+								statusDescription: props.statusDescription
+									? props.statusDescription[0]
 									: ref.statusDescription
 							},
 							{
-								status: prop.status
-									? prop.status[1]
+								status: props.status
+									? props.status[1]
 									: ref.status,
-								statusDescription: prop.statusDescription
-									? prop.statusDescription[1]
+								statusDescription: props.statusDescription
+									? props.statusDescription[1]
 									: ref.statusDescription
 							}
 						]
@@ -4407,14 +3969,15 @@ if (window.CefSharp) {
 			}
 		});
 
-		var saveFeedTimer = false;
+		var saveFeedTimer = null;
 		$app.methods.saveFeed = function () {
-			if (saveFeedTimer === false) {
-				saveFeedTimer = setTimeout(() => {
-					saveFeedTimer = false;
-					VRCXStorage.SetArray(`${API.currentUser.id}_feedTable`, this.feedTable.data);
-				}, 1);
+			if (saveFeedTimer !== null) {
+				return;
 			}
+			saveFeedTimer = setTimeout(() => {
+				saveFeedTimer = null;
+				VRCXStorage.SetArray(`${API.currentUser.id}_feedTable`, this.feedTable.data);
+			}, 1);
 		};
 
 		$app.methods.addFeed = function (type, ref, extra) {
@@ -4583,7 +4146,7 @@ if (window.CefSharp) {
 					L.worldName = L.worldId;
 					this.lastLocation_ = L;
 					if (L.worldId) {
-						var ref = API.world[L.worldId];
+						var ref = API.cachedWorlds.get(L.worldId);
 						if (ref) {
 							L.worldName = ref.name;
 						} else {
@@ -4614,10 +4177,9 @@ if (window.CefSharp) {
 		};
 
 		$app.methods.lookupUser = function (name) {
-			for (var key in API.user) {
-				var ctx = API.user[key];
-				if (ctx.displayName === name) {
-					this.showUserDialog(ctx.id);
+			for (var ref of API.cachedUsers.values()) {
+				if (ref.displayName === name) {
+					this.showUserDialog(ref.id);
 					return;
 				}
 			}
@@ -4641,7 +4203,7 @@ if (window.CefSharp) {
 		$app.data.isSearchWorldLoading = false;
 		$app.data.isSearchAvatarLoading = false;
 
-		API.$on('LOGIN', () => {
+		API.$on('LOGIN', function () {
 			$app.searchText = '';
 			$app.searchUsers = [];
 			$app.searchUserParam = {};
@@ -4676,15 +4238,15 @@ if (window.CefSharp) {
 		};
 
 		$app.methods.moreSearchUser = function (go) {
-			var param = this.searchUserParam;
+			var params = this.searchUserParam;
 			if (go) {
-				param.offset += param.n * go;
-				if (param.offset < 0) {
-					param.offset = 0;
+				params.offset += params.n * go;
+				if (params.offset < 0) {
+					params.offset = 0;
 				}
 			}
 			this.isSearchUserLoading = true;
-			API.getUsers(param).finally(() => {
+			API.getUsers(params).finally(() => {
 				this.isSearchUserLoading = false;
 			}).then((args) => {
 				this.searchUsers = [];
@@ -4697,30 +4259,30 @@ if (window.CefSharp) {
 
 		$app.methods.searchWorld = function (ref) {
 			this.searchWorldOption = '';
-			var param = {
+			var params = {
 				n: 10,
 				offset: 0
 			};
 			switch (ref.sortHeading) {
 				case 'featured':
-					param.sort = 'order';
-					param.featured = 'true';
+					params.sort = 'order';
+					params.featured = 'true';
 					break;
 				case 'trending':
-					param.sort = 'popularity';
-					param.featured = 'false';
+					params.sort = 'popularity';
+					params.featured = 'false';
 					break;
 				case 'updated':
-					param.sort = 'updated';
+					params.sort = 'updated';
 					break;
 				case 'created':
-					param.sort = 'created';
+					params.sort = 'created';
 					break;
 				case 'publication':
-					param.sort = 'publicationDate';
+					params.sort = 'publicationDate';
 					break;
 				case 'shuffle':
-					param.sort = 'shuffle';
+					params.sort = 'shuffle';
 					break;
 				case 'active':
 					this.searchWorldOption = 'active';
@@ -4732,40 +4294,40 @@ if (window.CefSharp) {
 					this.searchWorldOption = 'favorites';
 					break;
 				case 'labs':
-					param.sort = 'labsPublicationDate';
+					params.sort = 'labsPublicationDate';
 					break;
 				case 'heat':
-					param.sort = 'heat';
-					param.featured = 'false';
+					params.sort = 'heat';
+					params.featured = 'false';
 					break;
 				default:
-					param.sort = 'popularity';
-					param.search = this.searchText;
+					params.sort = 'popularity';
+					params.search = this.searchText;
 					break;
 			}
-			param.order = ref.sortOrder || 'descending';
+			params.order = ref.sortOrder || 'descending';
 			if (ref.sortOwnership === 'mine') {
-				param.user = 'me';
-				param.releaseStatus = 'all';
+				params.user = 'me';
+				params.releaseStatus = 'all';
 			}
 			if (ref.tag) {
-				param.tag = ref.tag;
+				params.tag = ref.tag;
 			}
 			// TODO: option.platform
-			this.searchWorldParam = param;
+			this.searchWorldParam = params;
 			this.moreSearchWorld();
 		};
 
 		$app.methods.moreSearchWorld = function (go) {
-			var param = this.searchWorldParam;
+			var params = this.searchWorldParam;
 			if (go) {
-				param.offset += param.n * go;
-				if (param.offset < 0) {
-					param.offset = 0;
+				params.offset += params.n * go;
+				if (params.offset < 0) {
+					params.offset = 0;
 				}
 			}
 			this.isSearchWorldLoading = true;
-			API.getWorlds(param, this.searchWorldOption).finally(() => {
+			API.getWorlds(params, this.searchWorldOption).finally(() => {
 				this.isSearchWorldLoading = false;
 			}).then((args) => {
 				this.searchWorlds = [];
@@ -4777,42 +4339,42 @@ if (window.CefSharp) {
 		};
 
 		$app.methods.searchAvatar = function (option) {
-			var param = {
+			var params = {
 				n: 10,
 				offset: 0
 			};
 			switch (option) {
 				case 'updated':
-					param.sort = 'updated';
+					params.sort = 'updated';
 					break;
 				case 'created':
-					param.sort = 'created';
+					params.sort = 'created';
 					break;
 				case 'mine':
-					param.user = 'me';
-					param.releaseStatus = 'all';
+					params.user = 'me';
+					params.releaseStatus = 'all';
 					break;
 				default:
-					param.sort = 'popularity';
-					param.search = this.searchText;
+					params.sort = 'popularity';
+					params.search = this.searchText;
 					break;
 			}
-			param.order = 'descending';
+			params.order = 'descending';
 			// TODO: option.platform
-			this.searchAvatarParam = param;
+			this.searchAvatarParam = params;
 			this.moreSearchAvatar();
 		};
 
 		$app.methods.moreSearchAvatar = function (go) {
-			var param = this.searchAvatarParam;
+			var params = this.searchAvatarParam;
 			if (go) {
-				param.offset += param.n * go;
-				if (param.offset < 0) {
-					param.offset = 0;
+				params.offset += params.n * go;
+				if (params.offset < 0) {
+					params.offset = 0;
 				}
 			}
 			this.isSearchAvatarLoading = true;
-			API.getAvatars(param).finally(() => {
+			API.getAvatars(params).finally(() => {
 				this.isSearchAvatarLoading = false;
 			}).then((args) => {
 				this.searchAvatars = [];
@@ -4835,7 +4397,7 @@ if (window.CefSharp) {
 		$app.data.sortFavoriteWorlds = false;
 		$app.data.sortFavoriteAvatars = false;
 
-		API.$on('LOGIN', () => {
+		API.$on('LOGIN', function () {
 			$app.favoriteFriend = {};
 			$app.favoriteWorld = {};
 			$app.favoriteAvatar = {};
@@ -4847,34 +4409,32 @@ if (window.CefSharp) {
 			$app.sortFavoriteAvatars = false;
 		});
 
-		API.$on('FAVORITE', (args) => {
-			$app.updateFavorite(args.ref.type, args.ref.favoriteId);
+		API.$on('FAVORITE', function (args) {
+			$app.applyFavorite(args.ref.type, args.ref.favoriteId);
 		});
 
-		API.$on('FAVORITE:@DELETE', (args) => {
-			$app.updateFavorite(args.ref.type, args.ref.favoriteId);
+		API.$on('FAVORITE:@DELETE', function (args) {
+			$app.applyFavorite(args.ref.type, args.ref.favoriteId);
 		});
 
-		API.$on('USER', (args) => {
-			$app.updateFavorite('friend', args.ref.id);
+		API.$on('USER', function (args) {
+			$app.applyFavorite('friend', args.ref.id);
 		});
 
-		API.$on('WORLD', (args) => {
-			$app.updateFavorite('world', args.ref.id);
+		API.$on('WORLD', function (args) {
+			$app.applyFavorite('world', args.ref.id);
 		});
 
-		API.$on('AVATAR', (args) => {
-			$app.updateFavorite('avatar', args.ref.id);
+		API.$on('AVATAR', function (args) {
+			$app.applyFavorite('avatar', args.ref.id);
 		});
 
-		$app.methods.updateFavorite = function (type, objectId) {
-			var favorite = API.favoriteObject[objectId];
-			var ctx;
-			var ref;
+		$app.methods.applyFavorite = function (type, objectId) {
+			var favorite = API.cachedFavoritesByObjectId.get(objectId);
 			if (type === 'friend') {
-				ctx = this.favoriteFriend[objectId];
+				var ctx = this.favoriteFriend[objectId];
 				if (favorite) {
-					ref = API.user[objectId];
+					var ref = API.cachedUsers.get(objectId);
 					if (ctx) {
 						if (ctx.ref !== ref) {
 							ctx.ref = ref;
@@ -4887,7 +4447,7 @@ if (window.CefSharp) {
 					} else {
 						ctx = {
 							id: objectId,
-							group: favorite.group_,
+							groupKey: favorite.$groupKey,
 							ref,
 							name: ''
 						};
@@ -4900,18 +4460,18 @@ if (window.CefSharp) {
 								ctx.name = ref.displayName;
 							}
 						}
-						this.$set(this.favoriteFriend, objectId, ctx);
+						Vue.set(this.favoriteFriend, objectId, ctx);
 						this.favoriteFriends_.push(ctx);
 						this.sortFavoriteFriends = true;
 					}
 				} else if (ctx) {
-					this.$delete(this.favoriteFriend, objectId);
+					Vue.delete(this.favoriteFriend, objectId);
 					removeFromArray(this.favoriteFriends_, ctx);
 				}
 			} else if (type === 'world') {
-				ctx = this.favoriteWorld[objectId];
+				var ctx = this.favoriteWorld[objectId];
 				if (favorite) {
-					ref = API.world[objectId];
+					var ref = API.cachedWorlds.get(objectId);
 					if (ctx) {
 						if (ctx.ref !== ref) {
 							ctx.ref = ref;
@@ -4924,25 +4484,25 @@ if (window.CefSharp) {
 					} else {
 						ctx = {
 							id: objectId,
-							group: favorite.group_,
+							groupKey: favorite.$groupKey,
 							ref,
 							name: ''
 						};
 						if (ref) {
 							ctx.name = ref.name;
 						}
-						this.$set(this.favoriteWorld, objectId, ctx);
+						Vue.set(this.favoriteWorld, objectId, ctx);
 						this.favoriteWorlds_.push(ctx);
 						this.sortFavoriteWorlds = true;
 					}
 				} else {
-					this.$delete(this.favoriteWorld, objectId);
+					Vue.delete(this.favoriteWorld, objectId);
 					removeFromArray(this.favoriteWorlds_, ctx);
 				}
 			} else if (type === 'avatar') {
-				ctx = this.favoriteAvatar[objectId];
+				var ctx = this.favoriteAvatar[objectId];
 				if (favorite) {
-					ref = API.avatar[objectId];
+					var ref = API.cachedAvatars.get(objectId);
 					if (ctx) {
 						if (ctx.ref !== ref) {
 							ctx.ref = ref;
@@ -4955,19 +4515,19 @@ if (window.CefSharp) {
 					} else {
 						ctx = {
 							id: objectId,
-							group: favorite.group_,
+							groupKey: favorite.$groupKey,
 							ref,
 							name: ''
 						};
 						if (ref) {
 							ctx.name = ref.name;
 						}
-						this.$set(this.favoriteAvatar, objectId, ctx);
+						Vue.set(this.favoriteAvatar, objectId, ctx);
 						this.favoriteAvatars_.push(ctx);
 						this.sortFavoriteAvatars = true;
 					}
 				} else {
-					this.$delete(this.favoriteAvatar, objectId);
+					Vue.delete(this.favoriteAvatar, objectId);
 					removeFromArray(this.favoriteAvatars_, ctx);
 				}
 			}
@@ -5103,28 +4663,28 @@ if (window.CefSharp) {
 			}
 		};
 
-		API.$on('LOGIN', (args) => {
+		API.$on('LOGIN', function (args) {
 			$app.initFriendship(args.ref);
 		});
 
-		API.$on('USER:CURRENT', (args) => {
+		API.$on('USER:CURRENT', function (args) {
 			$app.updateFriendships(args.ref);
 		});
 
-		API.$on('USER', (args) => {
+		API.$on('USER', function (args) {
 			$app.updateFriendship(args.ref);
 		});
 
-		API.$on('FRIEND:ADD', (args) => {
-			$app.addFriendship(args.param.userId);
+		API.$on('FRIEND:ADD', function (args) {
+			$app.addFriendship(args.params.userId);
 		});
 
-		API.$on('FRIEND:DELETE', (args) => {
-			$app.deleteFriendship(args.param.userId);
+		API.$on('FRIEND:DELETE', function (args) {
+			$app.deleteFriendship(args.params.userId);
 		});
 
-		API.$on('FRIEND:REQUEST', (args) => {
-			var ref = API.user[args.param.userId];
+		API.$on('FRIEND:REQUEST', function (args) {
+			var ref = this.cachedUsers.get(args.params.userId);
 			if (ref) {
 				$app.friendLogTable.data.push({
 					created_at: new Date().toJSON(),
@@ -5136,8 +4696,8 @@ if (window.CefSharp) {
 			}
 		});
 
-		API.$on('FRIEND:REQUEST:CANCEL', (args) => {
-			var ref = API.user[args.param.userId];
+		API.$on('FRIEND:REQUEST:CANCEL', function (args) {
+			var ref = this.cachedUsers.get(args.params.userId);
 			if (ref) {
 				$app.friendLogTable.data.push({
 					created_at: new Date().toJSON(),
@@ -5149,16 +4709,17 @@ if (window.CefSharp) {
 			}
 		});
 
-		var saveFriendLogTimer = false;
+		var saveFriendLogTimer = null;
 		$app.methods.saveFriendLog = function () {
-			if (saveFriendLogTimer === false) {
-				saveFriendLogTimer = setTimeout(() => {
-					saveFriendLogTimer = false;
-					VRCXStorage.SetObject(`${API.currentUser.id}_friendLog`, this.friendLog);
-					VRCXStorage.SetArray(`${API.currentUser.id}_friendLogTable`, this.friendLogTable.data);
-					VRCXStorage.Set(`${API.currentUser.id}_friendLogUpdatedAt`, new Date().toJSON());
-				}, 1);
+			if (saveFriendLogTimer !== null) {
+				return;
 			}
+			saveFriendLogTimer = setTimeout(() => {
+				saveFriendLogTimer = null;
+				VRCXStorage.SetObject(`${API.currentUser.id}_friendLog`, this.friendLog);
+				VRCXStorage.SetArray(`${API.currentUser.id}_friendLogTable`, this.friendLogTable.data);
+				VRCXStorage.Set(`${API.currentUser.id}_friendLogUpdatedAt`, new Date().toJSON());
+			}, 1);
 		};
 
 		$app.methods.initFriendship = function (ref) {
@@ -5171,10 +4732,10 @@ if (window.CefSharp) {
 					var ctx = {
 						id
 					};
-					var user = API.user[id];
+					var user = API.cachedUsers.get(id);
 					if (user) {
 						ctx.displayName = user.displayName;
-						ctx.trustLevel = user.trustLevel_;
+						ctx.trustLevel = user.$trustLevel;
 					}
 					this.friendLog[id] = ctx;
 				});
@@ -5190,11 +4751,11 @@ if (window.CefSharp) {
 					displayName: null,
 					trustLevel: null
 				};
-				this.$set(this.friendLog, id, ctx);
-				var ref = API.user[id];
+				Vue.set(this.friendLog, id, ctx);
+				var ref = API.cachedUsers.get(id);
 				if (ref) {
 					ctx.displayName = ref.displayName;
-					ctx.trustLevel = ref.trustLevel_;
+					ctx.trustLevel = ref.$trustLevel;
 					this.friendLogTable.data.push({
 						created_at: new Date().toJSON(),
 						type: 'Friend',
@@ -5210,7 +4771,7 @@ if (window.CefSharp) {
 		$app.methods.deleteFriendship = function (id) {
 			var ctx = this.friendLog[id];
 			if (ctx) {
-				this.$delete(this.friendLog, id);
+				Vue.delete(this.friendLog, id);
 				this.friendLogTable.data.push({
 					created_at: new Date().toJSON(),
 					type: 'Unfriend',
@@ -5259,19 +4820,19 @@ if (window.CefSharp) {
 					this.saveFriendLog();
 					this.notifyMenu('friendLog');
 				}
-				if (ref.trustLevel_ &&
-					ctx.trustLevel !== ref.trustLevel_) {
+				if (ref.$trustLevel &&
+					ctx.trustLevel !== ref.$trustLevel) {
 					if (ctx.trustLevel) {
 						this.friendLogTable.data.push({
 							created_at: new Date().toJSON(),
 							type: 'TrustLevel',
 							userId: ref.id,
 							displayName: ref.displayName,
-							trustLevel: ref.trustLevel_,
+							trustLevel: ref.$trustLevel,
 							previousTrustLevel: ctx.trustLevel
 						});
 					}
-					ctx.trustLevel = ref.trustLevel_;
+					ctx.trustLevel = ref.$trustLevel;
 					this.saveFriendLog();
 					this.notifyMenu('friendLog');
 				}
@@ -5333,33 +4894,33 @@ if (window.CefSharp) {
 			}
 		};
 
-		API.$on('LOGIN', () => {
+		API.$on('LOGIN', function () {
 			$app.playerModerationTable.data = [];
 		});
 
-		API.$on('PLAYER-MODERATION', (args) => {
+		API.$on('PLAYER-MODERATION', function (args) {
 			var insertOrUpdate = $app.playerModerationTable.data.some((val, idx, arr) => {
 				if (val.id === args.ref.id) {
-					if (args.ref.hide_) {
-						$app.$delete(arr, idx);
+					if (args.ref.$isExpired) {
+						Vue.delete(arr, idx);
 					} else {
-						$app.$set(arr, idx, args.ref);
+						Vue.set(arr, idx, args.ref);
 					}
 					return true;
 				}
 				return false;
 			});
 			if (!insertOrUpdate &&
-				!args.ref.hide_) {
+				!args.ref.$isExpired) {
 				$app.playerModerationTable.data.push(args.ref);
 				$app.notifyMenu('moderation');
 			}
 		});
 
-		API.$on('PLAYER-MODERATION:@DELETE', (args) => {
+		API.$on('PLAYER-MODERATION:@DELETE', function (args) {
 			$app.playerModerationTable.data.find((val, idx, arr) => {
 				if (val.id === args.ref.id) {
-					$app.$delete(arr, idx);
+					Vue.delete(arr, idx);
 					return true;
 				}
 				return false;
@@ -5419,33 +4980,33 @@ if (window.CefSharp) {
 			}
 		};
 
-		API.$on('LOGIN', () => {
+		API.$on('LOGIN', function () {
 			$app.notificationTable.data = [];
 		});
 
-		API.$on('NOTIFICATION', (args) => {
+		API.$on('NOTIFICATION', function (args) {
 			var insertOrUpdate = $app.notificationTable.data.some((val, idx, arr) => {
 				if (val.id === args.ref.id) {
-					if (args.ref.hide_) {
-						$app.$delete(arr, idx);
+					if (args.ref.$isExpired) {
+						Vue.delete(arr, idx);
 					} else {
-						$app.$set(arr, idx, args.ref);
+						Vue.set(arr, idx, args.ref);
 					}
 					return true;
 				}
 				return false;
 			});
 			if (!insertOrUpdate &&
-				!args.ref.hide_) {
+				!args.ref.$isExpired) {
 				$app.notificationTable.data.push(args.ref);
 				$app.notifyMenu('notification');
 			}
 		});
 
-		API.$on('NOTIFICATION:@DELETE', (args) => {
+		API.$on('NOTIFICATION:@DELETE', function (args) {
 			$app.notificationTable.data.find((val, idx, arr) => {
 				if (val.id === args.ref.id) {
-					$app.$delete(arr, idx);
+					Vue.delete(arr, idx);
 					return true;
 				}
 				return false;
@@ -5535,18 +5096,18 @@ if (window.CefSharp) {
 			$nameColorStyle.disabled = this.showNameColor;
 		};
 
-		API.$on('LOGIN', () => {
+		API.$on('LOGIN', function () {
 			$app.currentUserTreeData = [];
 			$app.pastDisplayNameTable.data = [];
 		});
 
-		API.$on('USER:CURRENT', (args) => {
+		API.$on('USER:CURRENT', function (args) {
 			if (args.ref.pastDisplayNames) {
 				$app.pastDisplayNameTable.data = args.ref.pastDisplayNames;
 			}
 		});
 
-		API.$on('VISITS', (args) => {
+		API.$on('VISITS', function (args) {
 			$app.visits = args.json;
 		});
 
@@ -5678,7 +5239,7 @@ if (window.CefSharp) {
 			isHideAvatar: false,
 			isFavorite: false,
 
-			location_: {},
+			$location: {},
 			users: [],
 			instance: {},
 
@@ -5696,41 +5257,41 @@ if (window.CefSharp) {
 			this.saveMemo(D.id, D.memo);
 		};
 
-		API.$on('LOGOUT', () => {
+		API.$on('LOGOUT', function () {
 			$app.userDialog.visible = false;
 		});
 
-		API.$on('USER', (args) => {
+		API.$on('USER', function (args) {
 			var D = $app.userDialog;
 			if (D.visible &&
 				args.ref.id === D.id) {
 				D.ref = args.ref;
-				$app.updateUserDialogLocation();
+				$app.applyUserDialogLocation();
 			}
 		});
 
-		API.$on('WORLD', (args) => {
+		API.$on('WORLD', function (args) {
 			var D = $app.userDialog;
 			if (D.visible &&
-				args.ref.id === D.location_.worldId) {
-				$app.updateUserDialogLocation();
+				args.ref.id === D.$location.worldId) {
+				$app.applyUserDialogLocation();
 			}
 		});
 
-		API.$on('FRIEND:STATUS', (args) => {
+		API.$on('FRIEND:STATUS', function (args) {
 			var D = $app.userDialog;
 			if (D.visible &&
-				args.param.userId === D.id) {
+				args.params.userId === D.id) {
 				D.isFriend = args.json.isFriend;
 				D.incomingRequest = args.json.incomingRequest;
 				D.outgoingRequest = args.json.outgoingRequest;
 			}
 		});
 
-		API.$on('FRIEND:REQUEST', (args) => {
+		API.$on('FRIEND:REQUEST', function (args) {
 			var D = $app.userDialog;
 			if (D.visible &&
-				args.param.userId === D.id) {
+				args.params.userId === D.id) {
 				if (args.json.success) {
 					D.isFriend = true;
 				} else {
@@ -5739,15 +5300,15 @@ if (window.CefSharp) {
 			}
 		});
 
-		API.$on('FRIEND:REQUEST:CANCEL', (args) => {
+		API.$on('FRIEND:REQUEST:CANCEL', function (args) {
 			var D = $app.userDialog;
 			if (D.visible &&
-				args.param.userId === D.id) {
+				args.params.userId === D.id) {
 				D.outgoingRequest = false;
 			}
 		});
 
-		API.$on('NOTIFICATION', (args) => {
+		API.$on('NOTIFICATION', function (args) {
 			var D = $app.userDialog;
 			if (D.visible &&
 				args.ref &&
@@ -5757,7 +5318,7 @@ if (window.CefSharp) {
 			}
 		});
 
-		API.$on('NOTIFICATION:ACCEPT', (args) => {
+		API.$on('NOTIFICATION:ACCEPT', function (args) {
 			var D = $app.userDialog;
 			if (D.visible &&
 				args.ref &&
@@ -5767,7 +5328,7 @@ if (window.CefSharp) {
 			}
 		});
 
-		API.$on('NOTIFICATION:@DELETE', (args) => {
+		API.$on('NOTIFICATION:@DELETE', function (args) {
 			var D = $app.userDialog;
 			if (D.visible &&
 				args.ref.senderUserId === D.id &&
@@ -5776,20 +5337,20 @@ if (window.CefSharp) {
 			}
 		});
 
-		API.$on('FRIEND:DELETE', (args) => {
+		API.$on('FRIEND:DELETE', function (args) {
 			var D = $app.userDialog;
 			if (D.visible &&
-				args.param.userId === D.id) {
+				args.params.userId === D.id) {
 				D.isFriend = false;
 			}
 		});
 
-		API.$on('PLAYER-MODERATION', (args) => {
+		API.$on('PLAYER-MODERATION', function (args) {
 			var D = $app.userDialog;
 			if (D.visible &&
 				args.ref.targetUserId === D.id &&
-				args.ref.sourceUserId === API.currentUser.id &&
-				!args.ref.hide_) {
+				args.ref.sourceUserId === this.currentUser.id &&
+				!args.ref.$isExpired) {
 				if (args.ref.type === 'block') {
 					D.isBlock = true;
 				} else if (args.ref.type === 'mute') {
@@ -5800,11 +5361,11 @@ if (window.CefSharp) {
 			}
 		});
 
-		API.$on('PLAYER-MODERATION:@DELETE', (args) => {
+		API.$on('PLAYER-MODERATION:@DELETE', function (args) {
 			var D = $app.userDialog;
 			if (D.visible &&
 				args.ref.targetUserId === D.id &&
-				args.ref.sourceUserId === API.currentUser.id) {
+				args.ref.sourceUserId === this.currentUser.id) {
 				if (args.ref.type === 'block') {
 					D.isBlock = false;
 				} else if (args.ref.type === 'mute') {
@@ -5815,16 +5376,16 @@ if (window.CefSharp) {
 			}
 		});
 
-		API.$on('FAVORITE', (args) => {
+		API.$on('FAVORITE', function (args) {
 			var D = $app.userDialog;
 			if (D.visible &&
 				args.ref.favoriteId === D.id &&
-				!args.ref.hide_) {
+				!args.ref.$isExpired) {
 				D.isFavorite = true;
 			}
 		});
 
-		API.$on('FAVORITE:@DELETE', (args) => {
+		API.$on('FAVORITE:@DELETE', function (args) {
 			var D = $app.userDialog;
 			if (D.visible &&
 				args.ref.favoriteId === D.id) {
@@ -5850,20 +5411,17 @@ if (window.CefSharp) {
 				if (args.ref.id === D.id) {
 					D.loading = false;
 					D.ref = args.ref;
-					D.friend = this.friend[D.id];
+					D.friend = this.friends.get(D.id);
 					D.isFriend = Boolean(D.friend);
 					D.incomingRequest = false;
 					D.outgoingRequest = false;
 					D.isBlock = false;
 					D.isMute = false;
 					D.isHideAvatar = false;
-					var key;
-					var ref;
-					for (key in API.playerModeration) {
-						ref = API.playerModeration[key];
+					for (var ref of API.cachedPlayerModerations.values()) {
 						if (ref.targetUserId === D.id &&
 							ref.sourceUserId === API.currentUser.id &&
-							!ref.hide_) {
+							!ref.$isExpired) {
 							if (ref.type === 'block') {
 								D.isBlock = true;
 							} else if (ref.type === 'mute') {
@@ -5873,20 +5431,18 @@ if (window.CefSharp) {
 							}
 						}
 					}
-					D.isFavorite = Boolean(API.favoriteObject[D.id]);
-					this.updateUserDialogLocation();
+					D.isFavorite = API.cachedFavoritesByObjectId.has(D.id);
+					this.applyUserDialogLocation();
 					D.worlds = [];
 					D.avatars = [];
 					D.isWorldsLoading = false;
 					D.isAvatarsLoading = false;
-					for (key in API.world) {
-						ref = API.world[key];
+					for (var ref of API.cachedWorlds.values()) {
 						if (ref.authorId === D.id) {
 							D.worlds.push(ref);
 						}
 					}
-					for (key in API.avatar) {
-						ref = API.avatar[key];
+					for (var ref of API.cachedAvatars.values()) {
 						if (ref.authorId === D.id) {
 							D.avatars.push(ref);
 						}
@@ -5897,35 +5453,34 @@ if (window.CefSharp) {
 						userId: D.id
 					});
 					if (args.cache) {
-						API.getUser(args.param);
+						API.getUser(args.params);
 					}
 				}
 				return args;
 			});
 		};
 
-		$app.methods.updateUserDialogLocation = function () {
-			var ref;
+		$app.methods.applyUserDialogLocation = function () {
 			var D = this.userDialog;
 			var L = API.parseLocation(D.ref.location);
-			D.location_ = L;
+			D.$location = L;
 			if (L.userId) {
-				ref = API.user[L.userId];
+				var ref = API.cachedUsers.get(L.userId);
 				if (ref) {
 					L.user = ref;
 				} else {
 					API.getUser({
 						userId: L.userId
 					}).then((args) => {
-						this.$set(L, 'user', args.ref);
+						Vue.set(L, 'user', args.ref);
 						return args;
 					});
 				}
 			}
 			D.users = [];
 			if (!L.isOffline) {
-				for (var key in this.friend) {
-					ref = API.user[key];
+				for (var userId of this.friends.keys()) {
+					var ref = API.cachedUsers.get(userId);
 					if (ref &&
 						ref.location === D.ref.location) {
 						D.users.push(ref);
@@ -5959,14 +5514,14 @@ if (window.CefSharp) {
 						});
 					}
 				};
-				ref = API.world[L.worldId];
+				var ref = API.cachedWorlds.get(L.worldId);
 				if (ref) {
 					handle(ref.instances);
 				} else {
 					API.getWorld({
 						worldId: L.worldId
 					}).then((args) => {
-						if (L.tag === D.location_.tag) {
+						if (L.tag === D.$location.tag) {
 							handle(args.ref.instances);
 						}
 						return true;
@@ -5993,7 +5548,7 @@ if (window.CefSharp) {
 			var D = this.userDialog;
 			if (!D.isWorldsLoading) {
 				D.isWorldsLoading = true;
-				var param = {
+				var params = {
 					n: 100,
 					offset: 0,
 					sort: 'updated',
@@ -6002,14 +5557,14 @@ if (window.CefSharp) {
 					userId: D.id,
 					releaseStatus: 'public'
 				};
-				if (param.userId === API.currentUser.id) {
-					param.user = 'me';
-					param.releaseStatus = 'all';
+				if (params.userId === API.currentUser.id) {
+					params.user = 'me';
+					params.releaseStatus = 'all';
 				}
 				API.bulk({
 					fn: 'getWorlds',
 					N: -1,
-					param,
+					params,
 					handle: (args) => {
 						args.json.forEach((json) => {
 							insertOrUpdateArrayById(D.worlds, json);
@@ -6041,7 +5596,7 @@ if (window.CefSharp) {
 			var D = this.userDialog;
 			if (!D.isAvatarsLoading) {
 				D.isAvatarsLoading = true;
-				var param = {
+				var params = {
 					n: 100,
 					offset: 0,
 					sort: 'updated',
@@ -6050,14 +5605,14 @@ if (window.CefSharp) {
 					userId: D.id,
 					releaseStatus: 'public'
 				};
-				if (param.userId === API.currentUser.id) {
-					param.user = 'me';
-					param.releaseStatus = 'all';
+				if (params.userId === API.currentUser.id) {
+					params.user = 'me';
+					params.releaseStatus = 'all';
 				}
 				API.bulk({
 					fn: 'getAvatars',
 					N: -1,
-					param,
+					params,
 					handle: (args) => {
 						args.json.forEach((json) => {
 							insertOrUpdateArrayById(D.avatars, json);
@@ -6072,7 +5627,6 @@ if (window.CefSharp) {
 		};
 
 		var performUserDialogCommand = (command, userId) => {
-			var key;
 			switch (command) {
 				case 'Delete Favorite':
 					API.deleteFavorite({
@@ -6085,7 +5639,7 @@ if (window.CefSharp) {
 					});
 					break;
 				case 'Accept Friend Request':
-					key = API.getFriendRequest(userId);
+					var key = API.getFriendRequest(userId);
 					if (key === '') {
 						API.sendFriendRequest({
 							userId
@@ -6097,7 +5651,7 @@ if (window.CefSharp) {
 					}
 					break;
 				case 'Decline Friend Request':
-					key = API.getFriendRequest(userId);
+					var key = API.getFriendRequest(userId);
 					if (key === '') {
 						API.cancelFriendRequest({
 							userId
@@ -6153,6 +5707,8 @@ if (window.CefSharp) {
 						moderated: userId,
 						type: 'hideAvatar'
 					});
+					break;
+				default:
 					break;
 			}
 		};
@@ -6230,7 +5786,7 @@ if (window.CefSharp) {
 			visible: false,
 			loading: false,
 			id: '',
-			location_: {},
+			$location: {},
 			ref: {},
 			isFavorite: false,
 			rooms: [],
@@ -6239,37 +5795,37 @@ if (window.CefSharp) {
 			fileSize: ''
 		};
 
-		API.$on('LOGOUT', () => {
+		API.$on('LOGOUT', function () {
 			$app.worldDialog.visible = false;
 		});
 
-		API.$on('WORLD', (args) => {
+		API.$on('WORLD', function (args) {
 			var D = $app.worldDialog;
 			if (D.visible &&
 				args.ref.id === D.id) {
 				D.ref = args.ref;
 				var id = extractFileId(args.ref.assetUrl);
 				if (id) {
-					API.call(`file/${id}`).then((json) => {
+					this.call(`file/${id}`).then((json) => {
 						var ref = json.versions[json.versions.length - 1];
 						D.fileCreatedAt = ref.created_at;
 						D.fileSize = `${(ref.file.sizeInBytes / 1048576).toFixed(2)} MiB`;
 					});
 				}
-				$app.updateWorldDialogInstances();
+				$app.applyWorldDialogInstances();
 			}
 		});
 
-		API.$on('FAVORITE', (args) => {
+		API.$on('FAVORITE', function (args) {
 			var D = $app.worldDialog;
 			if (D.visible &&
 				args.ref.favoriteId === D.id &&
-				!args.ref.hide_) {
+				!args.ref.$isExpired) {
 				D.isFavorite = true;
 			}
 		});
 
-		API.$on('FAVORITE:@DELETE', (args) => {
+		API.$on('FAVORITE:@DELETE', function (args) {
 			var D = $app.worldDialog;
 			if (D.visible &&
 				args.ref.favoriteId === D.id) {
@@ -6283,7 +5839,7 @@ if (window.CefSharp) {
 			var L = API.parseLocation(tag);
 			if (L.worldId) {
 				D.id = L.worldId;
-				D.location_ = L;
+				D.$location = L;
 				D.treeData = [];
 				D.fileCreatedAt = '';
 				D.fileSize = 'Loading';
@@ -6299,11 +5855,11 @@ if (window.CefSharp) {
 					if (D.id === args.ref.id) {
 						D.loading = false;
 						D.ref = args.ref;
-						D.isFavorite = Boolean(API.favoriteObject[D.id]);
+						D.isFavorite = API.cachedFavoritesByObjectId.has(D.id);
 						D.rooms = [];
-						this.updateWorldDialogInstances();
+						this.applyWorldDialogInstances();
 						if (args.cache) {
-							API.getWorld(args.param);
+							API.getWorld(args.params);
 						}
 					}
 					return args;
@@ -6311,8 +5867,7 @@ if (window.CefSharp) {
 			}
 		};
 
-		$app.methods.updateWorldDialogInstances = function () {
-			var ref;
+		$app.methods.applyWorldDialogInstances = function () {
 			var D = this.worldDialog;
 			if (D.ref.instances) {
 				var map = {};
@@ -6323,7 +5878,7 @@ if (window.CefSharp) {
 						users: []
 					};
 				});
-				var { instanceId } = D.location_;
+				var { instanceId } = D.$location;
 				if (instanceId &&
 					!map[instanceId]) {
 					map[instanceId] = {
@@ -6332,11 +5887,11 @@ if (window.CefSharp) {
 						users: []
 					};
 				}
-				for (var key in this.friend) {
-					ref = API.user[key];
+				for (var userId of this.friends.keys()) {
+					var ref = API.cachedUsers.get(userId);
 					if (ref &&
-						ref.location_.worldId === D.id) {
-						({ instanceId } = ref.location_);
+						ref.$location.worldId === D.id) {
+						({ instanceId } = ref.$location);
 						if (map[instanceId]) {
 							map[instanceId].users.push(ref);
 						} else {
@@ -6349,37 +5904,39 @@ if (window.CefSharp) {
 					}
 				}
 				D.rooms = [];
-				Object.values(map).sort((a, b) => b.users.length - a.users.length ||
-					b.occupants - a.occupants).forEach((v) => {
-						var L = API.parseLocation(`${D.id}:${v.id}`);
-						v.location_ = L;
-						v.location = L.tag;
-						if (L.userId) {
-							ref = API.user[L.userId];
-							if (ref) {
-								L.user = ref;
-							} else {
-								API.getUser({
-									userId: L.userId
-								}).then((args) => {
-									this.$set(L, 'user', args.ref);
-									return args;
-								});
-							}
+				Object.values(map).sort(function (a, b) {
+					return b.users.length - a.users.length ||
+						b.occupants - a.occupants;
+				}).forEach((v) => {
+					var L = API.parseLocation(`${D.id}:${v.id}`);
+					v.$location = L;
+					v.location = L.tag;
+					if (L.userId) {
+						var $ref = API.cachedUsers.get(L.userId);
+						if ($ref) {
+							L.user = $ref;
+						} else {
+							API.getUser({
+								userId: L.userId
+							}).then((args) => {
+								Vue.set(L, 'user', args.ref);
+								return args;
+							});
 						}
-						v.users.sort((a, b) => {
-							var A = String(a.displayName).toUpperCase();
-							var B = String(b.displayName).toUpperCase();
-							if (A < B) {
-								return -1;
-							}
-							if (A > B) {
-								return 1;
-							}
-							return 0;
-						});
-						D.rooms.push(v);
+					}
+					v.users.sort((a, b) => {
+						var A = String(a.displayName).toUpperCase();
+						var B = String(b.displayName).toUpperCase();
+						if (A < B) {
+							return -1;
+						}
+						if (A > B) {
+							return 1;
+						}
+						return 0;
 					});
+					D.rooms.push(v);
+				});
 			}
 		};
 
@@ -6387,7 +5944,7 @@ if (window.CefSharp) {
 			var D = this.worldDialog;
 			if (D.visible) {
 				if (command === 'New Instance') {
-					this.showNewInstanceDialog(D.location_.tag);
+					this.showNewInstanceDialog(D.$location.tag);
 				} else if (command === 'Add Favorite') {
 					this.showFavoriteDialog('world', D.id);
 				} else {
@@ -6424,6 +5981,8 @@ if (window.CefSharp) {
 											});
 											return args;
 										});
+										break;
+									default:
 										break;
 								}
 							}
@@ -6470,18 +6029,18 @@ if (window.CefSharp) {
 			fileSize: ''
 		};
 
-		API.$on('LOGOUT', () => {
+		API.$on('LOGOUT', function () {
 			$app.avatarDialog.visible = false;
 		});
 
-		API.$on('AVATAR', (args) => {
+		API.$on('AVATAR', function (args) {
 			var D = $app.avatarDialog;
 			if (D.visible &&
 				args.ref.id === D.id) {
 				D.ref = args.ref;
 				var id = extractFileId(args.ref.assetUrl);
 				if (id) {
-					API.call(`file/${id}`).then((json) => {
+					this.call(`file/${id}`).then((json) => {
 						var ref = json.versions[json.versions.length - 1];
 						D.fileCreatedAt = ref.created_at;
 						D.fileSize = `${(ref.file.sizeInBytes / 1048576).toFixed(2)} MiB`;
@@ -6490,16 +6049,16 @@ if (window.CefSharp) {
 			}
 		});
 
-		API.$on('FAVORITE', (args) => {
+		API.$on('FAVORITE', function (args) {
 			var D = $app.avatarDialog;
 			if (D.visible &&
 				args.ref.favoriteId === D.id &&
-				!args.ref.hide_) {
+				!args.ref.$isExpired) {
 				D.isFavorite = true;
 			}
 		});
 
-		API.$on('FAVORITE:@DELETE', (args) => {
+		API.$on('FAVORITE:@DELETE', function (args) {
 			var D = $app.avatarDialog;
 			if (D.visible &&
 				args.ref.favoriteId === D.id) {
@@ -6526,9 +6085,9 @@ if (window.CefSharp) {
 				if (D.id === args.ref.id) {
 					D.loading = false;
 					D.ref = args.ref;
-					D.isFavorite = Boolean(API.favoriteObject[D.ref.id]);
+					D.isFavorite = API.cachedFavoritesByObjectId.has(D.ref.id);
 					if (args.cache) {
-						API.getAvatar(args.param);
+						API.getAvatar(args.params);
 					}
 				}
 				return args;
@@ -6557,6 +6116,8 @@ if (window.CefSharp) {
 										API.selectAvatar({
 											avatarId: D.id
 										});
+										break;
+									default:
 										break;
 								}
 							}
@@ -6613,7 +6174,7 @@ if (window.CefSharp) {
 			groups: []
 		};
 
-		API.$on('LOGOUT', () => {
+		API.$on('LOGOUT', function () {
 			$app.favoriteDialog.visible = false;
 		});
 
@@ -6659,7 +6220,7 @@ if (window.CefSharp) {
 			userIds: []
 		};
 
-		API.$on('LOGOUT', () => {
+		API.$on('LOGOUT', function () {
 			$app.inviteDialog.visible = false;
 		});
 
@@ -6673,7 +6234,7 @@ if (window.CefSharp) {
 						var D = this.inviteDialog;
 						if (!D.loading) {
 							D.loading = true;
-							var param = {
+							var params = {
 								receiverUserId: '',
 								type: 'invite',
 								message: '',
@@ -6685,8 +6246,8 @@ if (window.CefSharp) {
 							};
 							var invite = () => {
 								if (D.userIds.length) {
-									param.receiverUserId = D.userIds.shift();
-									API.sendNotification(param).finally(invite);
+									params.receiverUserId = D.userIds.shift();
+									API.sendNotification(params).finally(invite);
 								} else {
 									D.loading = false;
 									D.visible = false;
@@ -6716,7 +6277,7 @@ if (window.CefSharp) {
 					D.worldName = ref.name;
 					D.visible = true;
 				};
-				var ref = API.world[L.worldId];
+				var ref = API.cachedWorlds.get(L.worldId);
 				if (ref) {
 					handle(ref);
 				} else {
@@ -6739,7 +6300,7 @@ if (window.CefSharp) {
 			statusDescription: ''
 		};
 
-		API.$on('LOGOUT', () => {
+		API.$on('LOGOUT', function () {
 			$app.socialStatusDialog.visible = false;
 		});
 
@@ -6783,7 +6344,7 @@ if (window.CefSharp) {
 			url: ''
 		};
 
-		API.$on('LOGOUT', () => {
+		API.$on('LOGOUT', function () {
 			$app.newInstanceDialog.visible = false;
 		});
 
@@ -6876,7 +6437,7 @@ if (window.CefSharp) {
 			VRCXStorage.SetBool('launchAsDesktop', this.launchDialog.desktop);
 		};
 
-		API.$on('LOGOUT', () => {
+		API.$on('LOGOUT', function () {
 			$app.launchDialog.visible = false;
 		});
 
