@@ -1,10 +1,22 @@
 @charset "utf-8";
 /*
-Copyright(c) 2019 pypy. All rights reserved.
+Copyright(c) 2019-2020 pypy and individual contributors.
+All rights reserved.
 
 This work is licensed under the terms of the MIT license.
 For a copy, see <https://opensource.org/licenses/MIT>.
 */
+
+.color-palettes {
+	background: #409EFF;
+	background: #67C23A;
+	background: #E6A23C;
+	background: #F56C6C;
+	background: #909399;
+	background: #FD9200;
+	background: #E6E6E6;
+	background: #C0C4CC;
+}
 
 .noty_layout {
 	word-break: break-all;
@@ -70,18 +82,22 @@ For a copy, see <https://opensource.org/licenses/MIT>.
 }
 
 ::-webkit-scrollbar-track {
-	background: rgba(0, 0, 0, 0.1);
+	background: rgba(0, 0, 0, 0.05);
 	border-radius: 16px;
 }
 
 ::-webkit-scrollbar-thumb {
-	background: rgba(0, 0, 0, 0.25);
+	background: rgba(0, 0, 0, 0.2);
 	border-radius: 16px;
 }
 
 body, input, textarea, select, button {
 	font-family: 'Noto Sans JP', 'Noto Sans KR', 'Meiryo UI', 'Malgun Gothic', 'Segoe UI', sans-serif;
 	line-height: normal;
+}
+
+a {
+	color: #409eff;
 }
 
 .x-link {
@@ -140,9 +156,9 @@ body, input, textarea, select, button {
 	content: '';
 	right: 4px;
 	top: 4px;
-	width: 6px;
-	height: 6px;
-	background: #909399;
+	width: 4px;
+	height: 4px;
+	background: #EBEEF5;
 	border-radius: 50%
 }
 
@@ -273,6 +289,10 @@ body, input, textarea, select, button {
 	background: #67C23A;
 }
 
+.x-friend-item>.avatar.inactive::after {
+	background: #FD9200;
+}
+
 .x-friend-item>.avatar.joinme::after {
 	background: #409EFF;
 }
@@ -337,6 +357,10 @@ i.x-user-status {
 
 i.x-user-status.active {
 	background: #67C23A;
+}
+
+i.x-user-status.inactive {
+	background: #FD9200;
 }
 
 i.x-user-status.joinme {

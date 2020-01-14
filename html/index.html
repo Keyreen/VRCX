@@ -234,21 +234,21 @@
 		<el-tabs ref="searchTab" type="card" style="margin-top:15px">
 			<el-tab-pane label="User" v-loading="isSearchUserLoading" style="min-height:60px">
 				<div class="x-friend-list">
-					<div v-for="user in searchUsers" :key="user.id" @click="showUserDialog(user.id)" class="x-friend-item">
+					<div v-for="user in searchUserResults" :key="user.id" @click="showUserDialog(user.id)" class="x-friend-item">
 						<template v-once>
 							<div class="avatar">
 								<img v-lazy="user.currentAvatarThumbnailImageUrl">
 							</div>
 							<div class="detail">
-								<span v-text="user.displayName" class="name"></span>
+								<span v-text="user.displayName" class="name" :class="user.$trustClass"></span>
 								<span v-text="user.username" class="extra" style="font-family:monospace"></span>
 							</div>
 						</template>
 					</div>
 				</div>
 				<el-button-group style="margin-top:15px">
-					<el-button v-if="searchUserParam.offset" @click="moreSearchUser(-1)" icon="el-icon-back" size="small">Prev</el-button>
-					<el-button v-if="searchUsers.length" @click="moreSearchUser(1)" icon="el-icon-right" size="small">Next</el-button>
+					<el-button v-if="searchUserParams.offset" @click="moreSearchUser(-1)" icon="el-icon-back" size="small">Prev</el-button>
+					<el-button v-if="searchUserResults.length" @click="moreSearchUser(1)" icon="el-icon-right" size="small">Next</el-button>
 				</el-button-group>
 			</el-tab-pane>
 			<el-tab-pane label="World" v-loading="isSearchWorldLoading" style="min-height:60px">
@@ -259,7 +259,7 @@
 					</el-dropdown-menu>
 				</el-dropdown>
 				<div class="x-friend-list">
-					<div v-for="world in searchWorlds" :key="world.id" @click="showWorldDialog(world.id)" class="x-friend-item">
+					<div v-for="world in searchWorldResults" :key="world.id" @click="showWorldDialog(world.id)" class="x-friend-item">
 						<template v-once>
 							<div class="avatar">
 								<img v-lazy="world.thumbnailImageUrl">
@@ -273,8 +273,8 @@
 					</div>
 				</div>
 				<el-button-group style="margin-top:15px">
-					<el-button v-if="searchWorldParam.offset" @click="moreSearchWorld(-1)" icon="el-icon-back" size="small">Prev</el-button>
-					<el-button v-if="searchWorlds.length" @click="moreSearchWorld(1)" icon="el-icon-right" size="small">Next</el-button>
+					<el-button v-if="searchWorldParams.offset" @click="moreSearchWorld(-1)" icon="el-icon-back" size="small">Prev</el-button>
+					<el-button v-if="searchWorldResults.length" @click="moreSearchWorld(1)" icon="el-icon-right" size="small">Next</el-button>
 				</el-button-group>
 			</el-tab-pane>
 			<el-tab-pane label="Avatar" v-loading="isSearchAvatarLoading" style="min-height:60px">
@@ -288,7 +288,7 @@
 				</el-dropdown>
 				<span style="margin-left:10px;font-size:12px;color:#909399">Avatar search is not possible.</span>
 				<div class="x-friend-list">
-					<div v-for="avatar in searchAvatars" :key="avatar.id" @click="showAvatarDialog(avatar.id)" class="x-friend-item">
+					<div v-for="avatar in searchAvatarResults" :key="avatar.id" @click="showAvatarDialog(avatar.id)" class="x-friend-item">
 						<template v-once>
 							<div class="avatar">
 								<img v-lazy="avatar.thumbnailImageUrl">
@@ -301,8 +301,8 @@
 					</div>
 				</div>
 				<el-button-group style="margin-top:15px">
-					<el-button v-if="searchAvatarParam.offset" @click="moreSearchAvatar(-1)" icon="el-icon-back" size="small">Prev</el-button>
-					<el-button v-if="searchAvatars.length" @click="moreSearchAvatar(1)" icon="el-icon-right" size="small">Next</el-button>
+					<el-button v-if="searchAvatarParams.offset" @click="moreSearchAvatar(-1)" icon="el-icon-back" size="small">Prev</el-button>
+					<el-button v-if="searchAvatarResults.length" @click="moreSearchAvatar(1)" icon="el-icon-right" size="small">Next</el-button>
 				</el-button-group>
 			</el-tab-pane>
 		</el-tabs>
@@ -310,7 +310,7 @@
 
 	<!-- favorite -->
 	<div v-show="$refs.menu && $refs.menu.activeIndex === 'favorite'" class="x-container">
-		<el-button type="default" :loading="API.isFavoriteLoading" @click="API.refreshFavorite()" size="small" icon="el-icon-refresh" circle style="position:relative;float:right;z-index:1"></el-button>
+		<el-button type="default" :loading="API.isFavoriteLoading" @click="API.refreshFavorites()" size="small" icon="el-icon-refresh" circle style="position:relative;float:right;z-index:1"></el-button>
 		<el-tabs type="card" v-loading="API.isFavoriteLoading">
 			<el-tab-pane label="Friend">
 				<el-collapse style="border:0">
@@ -445,14 +445,14 @@
 
 	<!-- moderation -->
 	<div v-show="$refs.menu && $refs.menu.activeIndex === 'moderation'" class="x-container">
-		<data-tables v-bind="playerModerationTable" v-loading="API.isPlayerModerationLoading">
+		<data-tables v-bind="playerModerationTable" v-loading="API.isPlayerModerationsLoading">
 			<template #tool>
 				<div style="margin:0 0 10px;display:flex;align-items:center">
 					<el-select v-model="playerModerationTable.filters[0].value" multiple clearable collapse-tags style="flex:1" placeholder="Filter">
 						<el-option v-once v-for="type in ['block', 'mute', 'unmute', 'hideAvatar', 'showAvatar']" :key="type" :label="type" :value="type"></el-option>
 					</el-select>
 					<el-input v-model="playerModerationTable.filters[1].value" placeholder="Search" style="flex:none;width:150px;margin:0 10px"></el-input>
-					<el-button type="default" :loading="API.isPlayerModerationLoading" @click="API.refreshPlayerModeration()" icon="el-icon-refresh" circle style="flex:none"></el-button>
+					<el-button type="default" :loading="API.isPlayerModerationsLoading" @click="API.refreshPlayerModerations()" icon="el-icon-refresh" circle style="flex:none"></el-button>
 				</div>
 			</template>
 			<el-table-column label="Date" prop="created" sortable="custom" width="120">
@@ -485,7 +485,7 @@
 	</div>
 
 	<!-- notification -->
-	<div v-show="$refs.menu && $refs.menu.activeIndex === 'notification'" v-loading="API.isNotificationLoading" class="x-container">
+	<div v-show="$refs.menu && $refs.menu.activeIndex === 'notification'" v-loading="API.isNotificationsLoading" class="x-container">
 		<data-tables v-bind="notificationTable">
 			<template #tool>
 				<div style="margin:0 0 10px;display:flex;align-items:center">
@@ -493,7 +493,7 @@
 						<el-option v-once v-for="type in ['requestInvite', 'invite', 'friendRequest', 'message']" :key="type" :label="type" :value="type"></el-option>
 					</el-select>
 					<el-input v-model="notificationTable.filters[1].value" placeholder="Search" style="flex:none;width:150px;margin:0 10px"></el-input>
-					<el-button type="default" :loading="API.isNotificationLoading" @click="API.refreshNotification()" icon="el-icon-refresh" circle style="flex:none"></el-button>
+					<el-button type="default" :loading="API.isNotificationsLoading" @click="API.refreshNotifications()" icon="el-icon-refresh" circle style="flex:none"></el-button>
 				</div>
 			</template>
 			<el-table-column label="Date" prop="created_at" sortable="custom" width="120">
@@ -510,7 +510,7 @@
 				<template v-once #default="scope">
 					<el-tooltip placement="top" v-if="scope.row.type === 'invite'">
 						<template #content>
-							<span v-text="parseInviteLocation(scope.row)"></span>
+							<span v-text="API.parseInviteLocation(scope.row)"></span>
 						</template>
 						<span v-text="scope.row.type" @click="showWorldDialog(scope.row.details.worldId)" class="x-link"></span>
 					</el-tooltip>
@@ -697,26 +697,26 @@
 			<span style="font-weight:bold">Friends Sort Option</span>
 			<div style="font-size:12px;margin-top:5px">
 				<span style="display:inline-block;min-width:150px">VIP</span>
-				<el-switch v-model="orderFriendGroup0" inactive-text="by name" active-text="by state"></el-switch>
+				<el-switch v-model="orderFriendsGroup0" inactive-text="by name" active-text="by state"></el-switch>
 			</div>
 			<div style="font-size:12px;margin-top:5px">
 				<span style="display:inline-block;min-width:150px">ONLINE</span>
-				<el-switch v-model="orderFriendGroup1" inactive-text="by name" active-text="by state"></el-switch>
+				<el-switch v-model="orderFriendsGroup1" inactive-text="by name" active-text="by state"></el-switch>
 			</div>
 			<div style="font-size:12px;margin-top:5px">
 				<span style="display:inline-block;min-width:150px">ACTIVE</span>
-				<el-switch v-model="orderFriendGroup2" inactive-text="by name" active-text="by state"></el-switch>
+				<el-switch v-model="orderFriendsGroup2" inactive-text="by name" active-text="by state"></el-switch>
 			</div>
 			<div style="font-size:12px;margin-top:5px">
 				<span style="display:inline-block;min-width:150px">OFFLINE</span>
-				<el-switch v-model="orderFriendGroup3" inactive-text="by name" active-text="by state"></el-switch>
+				<el-switch v-model="orderFriendsGroup3" inactive-text="by name" active-text="by state"></el-switch>
 			</div>
 		</div>
 		<div style="margin-top:30px">
-			<span style="font-weight:bold">Show name color by Trust level</span>
+			<span style="font-weight:bold">Dark Mode</span>
 			<div style="font-size:12px;margin-top:5px">
 				<span style="display:inline-block;min-width:150px">Enable</span>
-				<el-switch v-model="showNameColor"></el-switch>
+				<el-switch v-model="isDarkMode"></el-switch>
 			</div>
 		</div>
 		<div style="margin-top:30px">
@@ -780,12 +780,12 @@
 			</el-option>
 		</el-select>
 		<div class="x-friend-list" style="padding-bottom:10px">
-			<div v-show="friendGroup0.length" class="x-friend-group">
-				<i class="el-icon-arrow-right" :class="{ rotate: isFriendGroup0 }"></i>
-				<span @click="isFriendGroup0 = !isFriendGroup0" class="x-link" style="margin-left:5px">VIP&horbar;{{ friendGroup0.length }}</span>
+			<div v-show="friendsGroup0.length" class="x-friend-group">
+				<i class="el-icon-arrow-right" :class="{ rotate: isFriendsGroup0 }"></i>
+				<span @click="isFriendsGroup0 = !isFriendsGroup0" class="x-link" style="margin-left:5px">VIP&horbar;{{ friendsGroup0.length }}</span>
 			</div>
-			<div v-show="isFriendGroup0">
-				<div v-for="friend in friendGroup0" :key="friend.id" @click="showUserDialog(friend.id)" class="x-friend-item">
+			<div v-show="isFriendsGroup0">
+				<div v-for="friend in friendsGroup0" :key="friend.id" @click="showUserDialog(friend.id)" class="x-friend-item">
 					<template v-if="friend.ref">
 						<div class="avatar" :class="userStatusClass(friend.ref)">
 							<img v-lazy="friend.ref.currentAvatarThumbnailImageUrl">
@@ -802,12 +802,12 @@
 					</template>
 				</div>
 			</div>
-			<div v-show="friendGroup1.length" class="x-friend-group">
-				<i class="el-icon-arrow-right" :class="{ rotate: isFriendGroup1 }"></i>
-				<span @click="isFriendGroup1 = !isFriendGroup1" class="x-link" style="margin-left:5px">ONLINE&horbar;{{ friendGroup1.length }}</span>
+			<div v-show="friendsGroup1.length" class="x-friend-group">
+				<i class="el-icon-arrow-right" :class="{ rotate: isFriendsGroup1 }"></i>
+				<span @click="isFriendsGroup1 = !isFriendsGroup1" class="x-link" style="margin-left:5px">ONLINE&horbar;{{ friendsGroup1.length }}</span>
 			</div>
-			<div v-show="isFriendGroup1">
-				<div v-for="friend in friendGroup1" :key="friend.id" @click="showUserDialog(friend.id)" class="x-friend-item">
+			<div v-show="isFriendsGroup1">
+				<div v-for="friend in friendsGroup1" :key="friend.id" @click="showUserDialog(friend.id)" class="x-friend-item">
 					<template v-if="friend.ref">
 						<div class="avatar" :class="userStatusClass(friend.ref)">
 							<img v-lazy="friend.ref.currentAvatarThumbnailImageUrl">
@@ -824,12 +824,12 @@
 					</template>
 				</div>
 			</div>
-			<div v-show="friendGroup2.length" class="x-friend-group">
-				<i class="el-icon-arrow-right" :class="{ rotate: isFriendGroup2 }"></i>
-				<span @click="isFriendGroup2 = !isFriendGroup2" class="x-link" style="margin-left:5px">ACTIVE&horbar;{{ friendGroup2.length }}</span>
+			<div v-show="friendsGroup2.length" class="x-friend-group">
+				<i class="el-icon-arrow-right" :class="{ rotate: isFriendsGroup2 }"></i>
+				<span @click="isFriendsGroup2 = !isFriendsGroup2" class="x-link" style="margin-left:5px">ACTIVE&horbar;{{ friendsGroup2.length }}</span>
 			</div>
-			<div v-show="isFriendGroup2">
-				<div v-for="friend in friendGroup2" :key="friend.id" @click="showUserDialog(friend.id)" class="x-friend-item">
+			<div v-show="isFriendsGroup2">
+				<div v-for="friend in friendsGroup2" :key="friend.id" @click="showUserDialog(friend.id)" class="x-friend-item">
 					<template v-if="friend.ref">
 						<div class="avatar">
 							<img v-lazy="friend.ref.currentAvatarThumbnailImageUrl">
@@ -846,12 +846,12 @@
 					</template>
 				</div>
 			</div>
-			<div v-show="friendGroup3.length" class="x-friend-group">
-				<i class="el-icon-arrow-right" :class="{ rotate: isFriendGroup3 }"></i>
-				<span @click="isFriendGroup3 = !isFriendGroup3" class="x-link" style="margin-left:5px">OFFLINE&horbar;{{ friendGroup3.length }}</span>
+			<div v-show="friendsGroup3.length" class="x-friend-group">
+				<i class="el-icon-arrow-right" :class="{ rotate: isFriendsGroup3 }"></i>
+				<span @click="isFriendsGroup3 = !isFriendsGroup3" class="x-link" style="margin-left:5px">OFFLINE&horbar;{{ friendsGroup3.length }}</span>
 			</div>
-			<div v-show="isFriendGroup3">
-				<div v-for="friend in friendGroup3" :key="friend.id" @click="showUserDialog(friend.id)" class="x-friend-item">
+			<div v-show="isFriendsGroup3">
+				<div v-for="friend in friendsGroup3" :key="friend.id" @click="showUserDialog(friend.id)" class="x-friend-item">
 					<template v-if="friend.ref">
 						<div class="avatar">
 							<img v-lazy="friend.ref.currentAvatarThumbnailImageUrl">
@@ -884,7 +884,8 @@
 						<div>
 							<el-tooltip v-if="userDialog.ref.status" placement="top">
 								<template #content>
-									<span v-if="userDialog.ref.location === 'offline'">Offline</span>
+									<span v-if="userDialog.ref.state === 'active'">Active</span>
+									<span v-else-if="userDialog.ref.location === 'offline'">Offline</span>
 									<span v-else-if="userDialog.ref.status === 'active'">Active</span>
 									<span v-else-if="userDialog.ref.status === 'join me'">Join Me</span>
 									<span v-else-if="userDialog.ref.status === 'busy'">Busy</span>
@@ -892,12 +893,10 @@
 								</template>
 								<i class="x-user-status" :class="userStatusClass(userDialog.ref)"></i>
 							</el-tooltip>
-							<span v-text="userDialog.ref.displayName" style="font-weight:bold"></span>
-						</div>
-						<div style="margin-top:5px">
+							<span v-text="userDialog.ref.displayName" style="margin-left:5px;font-weight:bold"></span>
 							<el-popover placement="top" trigger="click">
-								<span style="display:block;text-align:center;font-family:monospace">{{ userDialog.ref.username | textToHex }}</span>
-								<span slot="reference" v-text="userDialog.ref.username" style="color:#909399;font-family:monospace;cursor:pointer"></span>
+								<span style="display:block;text-align:center;font-family:monospace;">{{ userDialog.ref.username | textToHex }}</span>
+								<span slot="reference" v-text="userDialog.ref.username" style="margin-left:5px;color:#909399;font-family:monospace;font-size:12px;cursor:pointer"></span>
 							</el-popover>
 						</div>
 						<div style="margin-top:5px">
@@ -914,10 +913,8 @@
 						<el-dropdown trigger="click" @command="userDialogCommand" size="small">
 							<el-button :type="(userDialog.incomingRequest || userDialog.outgoingRequest) ? 'success' : (userDialog.isBlock || userDialog.isMute || userDialog.isHideAvatar) ? 'danger' : 'default'" icon="el-icon-more" circle></el-button>
 							<el-dropdown-menu #default="dropdown">
-								<el-dropdown-item icon="el-icon-s-custom" command="Show Avatar Author">Show Avatar Author</el-dropdown-item>
 								<template v-if="userDialog.isFriend">
 									<el-dropdown-item icon="el-icon-message" command="Message">Message</el-dropdown-item>
-									<el-dropdown-item icon="el-icon-delete" command="Unfriend" divided>Unfriend</el-dropdown-item>
 								</template>
 								<template v-else-if="userDialog.incomingRequest">
 									<el-dropdown-item icon="el-icon-check" command="Accept Friend Request">Accept Friend Request</el-dropdown-item>
@@ -925,12 +922,16 @@
 								</template>
 								<el-dropdown-item v-else-if="userDialog.outgoingRequest" icon="el-icon-close" command="Cancel Friend Request">Cancel Friend Request</el-dropdown-item>
 								<el-dropdown-item v-else icon="el-icon-plus" command="Send Friend Request">Send Friend Request</el-dropdown-item>
+								<el-dropdown-item icon="el-icon-s-custom" command="Show Avatar Author" divided>Show Avatar Author</el-dropdown-item>
 								<el-dropdown-item v-if="userDialog.isBlock" icon="el-icon-circle-check" command="Unblock" divided style="color:#F56C6C">Unblock</el-dropdown-item>
 								<el-dropdown-item v-else icon="el-icon-circle-close" command="Block" divided>Block</el-dropdown-item>
 								<el-dropdown-item v-if="userDialog.isMute" icon="el-icon-microphone" command="Unmute" style="color:#F56C6C">Unmute</el-dropdown-item>
 								<el-dropdown-item v-else icon="el-icon-turn-off-microphone" command="Mute">Mute</el-dropdown-item>
 								<el-dropdown-item v-if="userDialog.isHideAvatar" icon="el-icon-user-solid" command="Show Avatar" style="color:#F56C6C">Show Avatar</el-dropdown-item>
 								<el-dropdown-item v-else icon="el-icon-user" command="Hide Avatar">Hide Avatar</el-dropdown-item>
+								<template v-if="userDialog.isFriend">
+									<el-dropdown-item icon="el-icon-delete" command="Unfriend" divided>Unfriend</el-dropdown-item>
+								</template>
 							</el-dropdown-menu>
 						</el-dropdown>
 					</div>
@@ -970,7 +971,6 @@
 							</div>
 						</div>
 					</div>
-					
 					<div class="x-friend-list" style="max-height:none">
 						<div class="x-friend-item" v-if="userDialog.ref.bio" style="width:100%">
 							<div class="detail">
@@ -982,6 +982,19 @@
 							<div class="detail">
 								<span class="name">Note</span>
 								<el-input v-model="userDialog.memo" type="textarea" :rows="2" placeholder="Click to add a note" size="mini" resize="none" class="extra"></el-input>
+							</div>
+						</div>
+						<div class="x-friend-item" style="width:100%">
+							<div class="detail">
+								<span class="name">Bio</span>
+								<pre class="extra" style="font-family:inherit;font-size:12px;white-space:pre-wrap;margin:0 0.5em 0 0;">{{ userDialog.ref.bio || '-' }}</pre>								<div style="margin-top:5px">
+									<el-tooltip v-for="(link, index) in userDialog.ref.bioLinks" :key="index">
+										<template #content>
+											<span v-text="link"></span>
+										</template>
+										<img :src="getFaviconUrl(link)" style="width:16px;height:16px;vertical-align:middle;margin-right:5px">
+									</el-tooltip>
+								</div>
 							</div>
 						</div>
 						<div class="x-friend-item">
@@ -1309,8 +1322,8 @@
 						</div>
 					</el-option>
 				</el-option-group>
-				<el-option-group v-if="friendGroup0.length" label="VIP">
-					<el-option v-for="friend in friendGroup0" :key="friend.id" :label="friend.name" :value="friend.id" class="x-friend-item" style="height:auto">
+				<el-option-group v-if="friendsGroup0.length" label="VIP">
+					<el-option v-for="friend in friendsGroup0" :key="friend.id" :label="friend.name" :value="friend.id" class="x-friend-item" style="height:auto">
 						<template v-if="friend.ref">
 							<div class="avatar" :class="userStatusClass(friend.ref)">
 								<img v-lazy="friend.ref.currentAvatarThumbnailImageUrl">
@@ -1322,8 +1335,8 @@
 						<span v-else v-text="friend.id"></span>
 					</el-option>
 				</el-option-group>
-				<el-option-group v-if="friendGroup1.length" label="ONLINE">
-					<el-option v-for="friend in friendGroup1" :key="friend.id" :label="friend.name" :value="friend.id" class="x-friend-item" style="height:auto">
+				<el-option-group v-if="friendsGroup1.length" label="ONLINE">
+					<el-option v-for="friend in friendsGroup1" :key="friend.id" :label="friend.name" :value="friend.id" class="x-friend-item" style="height:auto">
 						<template v-if="friend.ref">
 							<div class="avatar" :class="userStatusClass(friend.ref)">
 								<img v-lazy="friend.ref.currentAvatarThumbnailImageUrl">
@@ -1335,8 +1348,8 @@
 						<span v-else v-text="friend.id"></span>
 					</el-option>
 				</el-option-group>
-				<el-option-group v-if="friendGroup2.length" label="ACTIVE">
-					<el-option v-for="friend in friendGroup2" :key="friend.id" :label="friend.name" :value="friend.id" class="x-friend-item" style="height:auto">
+				<el-option-group v-if="friendsGroup2.length" label="ACTIVE">
+					<el-option v-for="friend in friendsGroup2" :key="friend.id" :label="friend.name" :value="friend.id" class="x-friend-item" style="height:auto">
 						<template v-if="friend.ref">
 							<div class="avatar">
 								<img v-lazy="friend.ref.currentAvatarThumbnailImageUrl">
@@ -1743,14 +1756,14 @@ SOFTWARE.
 <script src="https://cdnjs.cloudflare.com/ajax/libs/element-ui/2.11.1/index.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/element-ui/2.11.1/locale/en.min.js"></script>
 <script>
-(() => {
+(function () {
 	var link = document.createElement('link');
 	link.rel = 'stylesheet';
 	link.href = `app.css?_=${Date.now()}`;
-	document.getElementsByTagName('head')[0].appendChild(link);
+	document.head.appendChild(link);
 	var script = document.createElement('script');
 	script.src = `app.js?_=${Date.now()}`;
-	document.getElementsByTagName('body')[0].appendChild(script);
+	document.body.appendChild(script);
 })();
 </script>
 </body>
